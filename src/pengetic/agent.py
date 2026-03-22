@@ -639,10 +639,13 @@ class AssessmentOrchestratorService:
             if updated_run is None:
                 raise ValueError(f"Run {run_id} not found after orchestration.")
             if stop_reason == "approval_required":
-                updated_run = self.store.update_run(
+                self.store.update_run(
                     run_id,
                     state=AssessmentState.awaiting_approval.value,
                 )
+                updated_run = self.store.get_run(run_id)
+                if updated_run is None:
+                    raise ValueError(f"Run {run_id} not found after approval state update.")
             persisted_state = updated_run["state"]
             run_payload = {
                 "id": updated_run["id"],

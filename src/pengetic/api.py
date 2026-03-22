@@ -816,7 +816,15 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     def serve_frontend(path: str) -> Response:
         if path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found.")
-        if path.startswith("assets/"):
+        frontend_root = app_settings.paths.frontend_dist_dir.resolve()
+        requested_file = (frontend_root / path).resolve()
+        try:
+            requested_file.relative_to(frontend_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Frontend asset not found.") from exc
+        if requested_file.exists() and requested_file.is_file():
+            return FileResponse(requested_file)
+        if path.startswith("assets/") or "." in Path(path).name:
             raise HTTPException(status_code=404, detail="Frontend asset not found.")
         return _frontend_index_response(app_settings)
 

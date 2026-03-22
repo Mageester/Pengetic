@@ -1,5 +1,9 @@
 # Pengetic
 
+<p align="center">
+  <img src="frontend/public/pengetic-logo.png" alt="Pengetic logo" width="760" />
+</p>
+
 Pengetic is a local-first defensive web assessment platform for authorized security work. It combines a scope-gated assessment engine, a FastAPI backend, a React + Tailwind GUI, SQLite persistence, and a local Ollama-backed planner service.
 
 It is built to stay closed by default:
@@ -39,6 +43,7 @@ The existing assessment engine is reused internally. The V2 platform adds a back
 src/pengetic/        FastAPI backend, CLI, state machine, storage, LLM planner
 src/scopeguard/      Legacy assessment engine reused internally by Pengetic
 frontend/            React + Tailwind GUI
+frontend/public/     Logo and browser icon assets
 docs/                Architecture and policy notes
 examples/            Demo scope package
 tests/               Backend and engine regression tests

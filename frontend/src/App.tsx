@@ -72,6 +72,7 @@ const textareaBase =
   "w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-cyan-400/40 focus:ring-2 focus:ring-cyan-400/20";
 const selectBase =
   "w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-cyan-400/40 focus:ring-2 focus:ring-cyan-400/20";
+const logoPath = "/pengetic-logo.png";
 
 function normalizeError(error: unknown): string {
   return error instanceof Error ? error.message : "An unexpected error occurred.";
@@ -215,6 +216,10 @@ function LabeledValue({ label, value }: { label: string; value: ReactNode }) {
       <div className="text-sm leading-6 text-slate-200">{value}</div>
     </div>
   );
+}
+
+function BrandLogo({ className, alt = "Pengetic logo" }: { className?: string; alt?: string }) {
+  return <img src={logoPath} alt={alt} className={cx("block h-auto w-full object-contain", className)} />;
 }
 
 function App() {
@@ -451,10 +456,8 @@ function App() {
         <aside className="w-full lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:w-[340px]">
           <div className={cx(panelBase, "flex h-full flex-col p-5")}>
             <div className="space-y-3 border-b border-white/5 pb-5">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400 via-sky-500 to-indigo-500 text-lg font-bold text-slate-950 shadow-lg shadow-cyan-950/30">
-                  P
-                </div>
+              <div className="space-y-3">
+                <BrandLogo className="max-w-[220px] drop-shadow-[0_0_28px_rgba(248,113,113,0.45)]" />
                 <div>
                   <div className="text-lg font-semibold tracking-tight text-white">Pengetic</div>
                   <div className="text-sm text-slate-400">Local-first defensive web assessment platform</div>
@@ -1348,9 +1351,7 @@ function App() {
           ) : (
             <div className="grid min-h-[60vh] place-items-center">
               <div className={cx(panelBase, "max-w-2xl p-8 text-center")}>
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400 via-sky-500 to-indigo-500 text-2xl font-bold text-slate-950">
-                  P
-                </div>
+                <BrandLogo className="mx-auto mb-4 max-w-[280px] drop-shadow-[0_0_32px_rgba(248,113,113,0.5)]" />
                 <h2 className="text-2xl font-semibold tracking-tight text-white">Bootstrapping Pengetic</h2>
                 <p className="mt-3 text-sm leading-7 text-slate-400">
                   Loading the local API, SQLite store, and current assessment state. This console stays

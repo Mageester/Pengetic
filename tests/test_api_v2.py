@@ -331,6 +331,7 @@ def test_v2_frontend_assets_are_served_as_static_files(tmp_path: Path, monkeypat
         encoding="utf-8",
     )
     (assets_dir / "app-123.js").write_text("console.log('Pengetic asset');", encoding="utf-8")
+    (frontend_dist / "pengetic-logo.png").write_bytes(b"fake-png-bytes")
     monkeypatch.setenv("PENGETIC_FRONTEND_DIST", str(frontend_dist))
 
     app = create_app()
@@ -340,6 +341,10 @@ def test_v2_frontend_assets_are_served_as_static_files(tmp_path: Path, monkeypat
         assert "text/html" not in asset_response.headers["content-type"]
         assert "javascript" in asset_response.headers["content-type"]
         assert "Pengetic asset" in asset_response.text
+
+        logo_response = client.get("/pengetic-logo.png")
+        assert logo_response.status_code == 200, logo_response.text
+        assert logo_response.headers["content-type"].startswith("image/png")
 
         app_route = client.get("/dashboard")
         assert app_route.status_code == 200, app_route.text

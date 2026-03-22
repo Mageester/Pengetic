@@ -77,7 +77,7 @@ class AssessmentEngine:
         self.http_client = http_client or httpx.Client(
             follow_redirects=True,
             timeout=httpx.Timeout(10.0),
-            headers={"User-Agent": "ScopeGuard/0.1"},
+            headers={"User-Agent": "Pengetic/0.1"},
         )
         self._owns_http_client = http_client is None
         self.manual_notes = manual_notes
@@ -273,4 +273,3 @@ def load_latest_run(workspace: WorkspacePaths, run_id: str | None = None) -> Pat
     if not candidates:
         raise FileNotFoundError("No runs have been recorded yet.")
     return sorted(candidates)[-1]
-

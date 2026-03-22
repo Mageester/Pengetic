@@ -1,12 +1,12 @@
 version: 1
 name: Demo Assessment
-primary_domain: getaxiom.ca
-base_url: https://getaxiom.ca
+primary_domain: wcdsb.ca
+base_url: https://wcdsb.ca
 allowed_subdomains:
-  - www.getaxiom.ca
+  - www.wcdsb.ca
 allowed_urls:
-  - https://getaxiom.ca/
-  - https://getaxiom.ca/login
+  - https://wcdsb.ca/
+  - https://wcdsb.ca/login
 out_of_scope_assets: []
 login_areas_allowed:
   - /login
@@ -34,6 +34,6 @@ testing_window:
   end: 2026-03-29T23:59:59Z
 authorization_note: Authorized by the site owner for defensive assessment only.
 contacts:
-  - security@getaxiom.ca
+  - security@wcdsb.ca
 notes: Demo scope for local testing.
 

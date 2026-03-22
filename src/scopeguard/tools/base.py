@@ -21,7 +21,7 @@ class ExecutionContext:
     http_client: Client
     manual_notes: str | None = None
     cache: dict[str, Any] = field(default_factory=dict)
-    user_agent: str = "ScopeGuard/0.1"
+    user_agent: str = "Pengetic/0.1"
     max_body_chars: int = 10_000
 
 
@@ -80,4 +80,3 @@ class ToolDefinition:
     default_risk: RiskLevel
     executor: Executor
     allowed_in_passive_profile: bool = True
-

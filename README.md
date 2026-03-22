@@ -1,66 +1,67 @@
-# ScopeGuard
+# Pengetic
 
-ScopeGuard is an authorized-only defensive web assessment framework. It is designed for user-owned targets or sites with explicit written permission, and it fails closed if no valid scope package is supplied.
+Pengetic is a local-first defensive web assessment platform for authorized security work. It combines a scope-gated assessment engine, a FastAPI backend, a React + Tailwind GUI, SQLite persistence, and a local Ollama-backed planner service.
 
-## What It Does
+It is built to stay closed by default:
 
-- Validates a versioned YAML scope package before any assessment work starts.
-- Classifies every action by risk.
-- Executes only `PASSIVE_SAFE` actions automatically.
-- Records approvals for active validation steps.
-- Writes redacted audit logs and evidence artifacts.
-- Generates a Markdown report with findings and remediation guidance.
+- no scope, no run
+- no active action without approval
+- no destructive testing
+- no brute force, credential attacks, persistence, or evasion
+- no unrestricted shell access for the LLM
 
-## Who It Is For
+## What Pengetic Does
 
-- Security engineers running authorized web assessments.
-- Internal red-team or AppSec teams working under a signed rules-of-engagement.
-- Portfolio or lab projects that need a safe-by-default assessment scaffold.
+- Validates a versioned YAML scope package before work begins.
+- Builds a risk-labelled assessment plan from the validated scope.
+- Executes passive-safe checks automatically.
+- Queues active checks for explicit approval.
+- Persists runs, approvals, findings, logs, artifacts, and reports in SQLite.
+- Renders a dark security-operations GUI for reviewing scope, plans, live runs, approvals, and reports.
+- Uses a local Ollama service to summarize assessment state and propose the next allowed step.
 
-## Safety Model
+## Architecture
 
-The framework is closed by default.
+Pengetic is split into these layers:
 
-| Risk class | Behavior |
-| --- | --- |
-| `PASSIVE_SAFE` | Runs automatically if the tool is allowed by scope. |
-| `LOW_RISK_ACTIVE` | Requires explicit per-action approval. |
-| `HIGH_RISK_ACTIVE` | Requires explicit per-action approval and should be used sparingly. |
-| `FORBIDDEN` | Never executed. |
+1. Scope validation and policy gating.
+2. Assessment planning and approval handling.
+3. Passive tool execution and evidence capture.
+4. SQLite persistence and run state tracking.
+5. FastAPI API and React GUI.
+6. Optional local LLM planning through Ollama.
 
-The framework does not include brute force, destructive testing, exploit delivery, persistence, or evasion features.
+The existing assessment engine is reused internally. The V2 platform adds a backend, a frontend, and a persistent workflow around it.
 
 ## Repository Layout
 
 ```text
-src/scopeguard/
-  cli.py
-  engine.py
-  config.py
-  runtime.py
-  scope/
-  policy/
-  tools/
-  evidence/
-  findings/
-  reporting/
-tests/
-docs/
-examples/scope.demo.yaml
-artifacts/
+src/pengetic/        FastAPI backend, CLI, state machine, storage, LLM planner
+src/scopeguard/      Legacy assessment engine reused internally by Pengetic
+frontend/            React + Tailwind GUI
+docs/                Architecture and policy notes
+examples/            Demo scope package
+tests/               Backend and engine regression tests
+data/                SQLite database and app state
+artifacts/           Run artifacts, logs, evidence, reports
 ```
 
-## How It Works
+## Safety Model
 
-1. Load and validate the scope package.
-2. Build a plan from the scope and the built-in tool registry.
-3. Run only passive-safe actions unless an active step has an approval record.
-4. Write evidence, audit logs, and a report into the assessment workspace.
-5. Use the report to review findings and decide whether follow-up approval is needed.
+Pengetic is designed for authorized assessments only.
+
+| Risk class | Behavior |
+| --- | --- |
+| `PASSIVE_SAFE` | Runs automatically if the tool is allowed by scope. |
+| `LOW_RISK_ACTIVE` | Requires explicit approval. |
+| `HIGH_RISK_ACTIVE` | Requires explicit approval and should be used sparingly. |
+| `FORBIDDEN` | Never executed. |
+
+The LLM can summarize state and recommend the next allowed step, but it cannot execute arbitrary shell commands or bypass approval gates.
 
 ## Scope Package
 
-The scope package is a YAML file with explicit host and route boundaries.
+The scope package is a YAML file with explicit host, route, and tooling boundaries.
 
 Required top-level fields:
 
@@ -79,7 +80,7 @@ Required top-level fields:
 - `authorization_note`
 - `contacts`
 
-### Example Scope YAML
+Example:
 
 ```yaml
 version: 1
@@ -87,21 +88,16 @@ name: Demo Assessment
 primary_domain: demo.example
 base_url: https://demo.example
 allowed_subdomains:
-  - www.demo.example
   - app.demo.example
 allowed_urls:
   - https://demo.example/
   - https://demo.example/login
-  - https://app.demo.example/dashboard
 out_of_scope_assets:
   - admin.demo.example
-  - billing.vendor.example
 login_areas_allowed:
   - /login
-  - /signin
 apis_allowed:
   - /api
-  - /graphql
 tool_allowlist:
   - header-review
   - tls-review
@@ -110,9 +106,6 @@ tool_allowlist:
   - route-inventory
   - tech-fingerprint
   - manual-review
-  - approved-login-surface-probe
-  - approved-api-surface-probe
-  - approved-rate-limit-probe
 rate_limits:
   max_requests_per_minute: 60
   max_concurrent_requests: 2
@@ -126,83 +119,101 @@ contacts:
 notes: Demo scope for local testing.
 ```
 
-## Risk Classification
+## Getting Started
 
-ScopeGuard uses the same four risk classes everywhere: plan generation, approvals, execution, and reporting.
+### 1. Install the backend
 
-- `PASSIVE_SAFE`: read-only checks like header review, robots.txt, sitemap.xml, route inventory, TLS posture, and passive fingerprinting.
-- `LOW_RISK_ACTIVE`: gated steps that are expected to be low impact but still require approval.
-- `HIGH_RISK_ACTIVE`: gated steps that could trigger controls or create side effects.
-- `FORBIDDEN`: never run.
+```bash
+pip install -e .
+```
 
-## Approval Gate
+### 2. Install the frontend
 
-Active actions are stored in the plan as deferred steps. They do not run until an approval record exists for the exact action id and scope fingerprint.
+```bash
+cd frontend
+npm install
+```
 
-Approval records include:
+### 3. Start the API server
 
-- action id
-- scope fingerprint
-- approver
-- approval time
-- note
-- risk class
+```bash
+pengetic serve
+```
 
-## Audit Logging
+### 4. Start the GUI in development mode
 
-Every run produces append-only JSONL audit events. Evidence files and logs are redacted before being written.
+```bash
+cd frontend
+npm run dev
+```
 
-Captured metadata includes:
-
-- timestamp
-- run id
-- action id
-- tool id
-- risk class
-- decision reason
-- execution outcome
-- artifact references
-
-## Report Template
-
-The Markdown report includes:
-
-- Executive summary
-- Scope confirmation
-- Methodology
-- Findings
-- Execution summary
-- Evidence
-- Limitations
-- Run metadata
+The Vite dev server proxies API calls to `http://127.0.0.1:8000`.
 
 ## CLI
 
 ```bash
-scopeguard validate-scope examples/scope.demo.yaml
-scopeguard plan examples/scope.demo.yaml
-scopeguard run examples/scope.demo.yaml
-scopeguard approve examples/scope.demo.yaml active-login-surface-probe
-scopeguard report examples/scope.demo.yaml
+pengetic validate-scope examples/scope.demo.yaml
+pengetic plan examples/scope.demo.yaml
+pengetic approve examples/scope.demo.yaml active-login-surface-probe
+pengetic run examples/scope.demo.yaml
+pengetic report examples/scope.demo.yaml
+pengetic serve
+pengetic paths
 ```
 
-### Profiles
+## GUI Surfaces
 
-- `passive-only`: run passive actions only.
-- `report-only`: suppress execution and use the reporting path.
-- `lab-safe`: allow approved active stubs in addition to passive work.
+The web UI is organized into seven views:
 
-## Implementation Plan
+1. Assessment dashboard
+2. Scope upload and validation
+3. Plan viewer with risk labels
+4. Live run view with logs, evidence, and findings
+5. Approval queue for gated actions
+6. Report viewer and export
+7. Planner panel for the Ollama-backed suggestion service
 
-1. Scaffold the package, scope validator, policy gate, and workspace layout.
-2. Add passive collectors and the tool registry.
-3. Add approval storage, audit logging, findings normalization, and report rendering.
-4. Add tests, demo scope data, and documentation.
+## Persistence
+
+Pengetic stores local state in SQLite at:
+
+```text
+data/pengetic.sqlite3
+```
+
+It also stores run artifacts and reports under:
+
+```text
+artifacts/runs/
+```
+
+## LLM Planner
+
+Pengetic talks to a local Ollama instance through the OpenAI-compatible `/v1/chat/completions` API.
+
+Environment variables:
+
+- `OLLAMA_BASE_URL`
+- `OLLAMA_MODEL`
+
+The planner is constrained to:
+
+- summarize findings
+- explain the current run state
+- recommend the next allowed step from the approved plan
 
 ## Limitations
 
-- The framework is not an exploitation toolkit.
-- Active steps are stubs unless approved tooling is added later.
-- The framework only operates on assets that are explicitly listed in scope.
-- It stops immediately if scope validation fails.
+- Pengetic is not an exploitation toolkit.
+- It does not run autonomous exploit chains.
+- It does not brute force, flood, or persist.
+- It only operates on assets explicitly listed in scope.
+- It stops when scope validation fails or the required approval is missing.
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Risk policy](docs/risk-policy.md)
+- [Audit and reporting](docs/audit-reporting.md)
+- [Implementation plan](docs/implementation-plan.md)
 

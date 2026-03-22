@@ -22,6 +22,9 @@ class Confidence(str, Enum):
 class Finding(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
+    id: int | None = None
+    run_id: str | None = None
+    action_id: str | None = None
     title: str
     severity: Severity
     confidence: Confidence
@@ -32,4 +35,4 @@ class Finding(BaseModel):
     remediation: str
     source_tool: str | None = None
     source_action_id: str | None = None
-
+    created_at: str | None = None

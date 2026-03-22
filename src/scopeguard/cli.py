@@ -11,14 +11,14 @@ from .policy.approvals import ApprovalRecord, ApprovalStore
 from .policy.plan import AssessmentPlan, AssessmentPlanner
 from .policy.risk import RiskLevel
 from .runtime import build_workspace
-from .scope.errors import ScopeGuardError
+from .scope.errors import PengeticError
 from .scope.fingerprint import scope_fingerprint
 from .scope.loader import load_scope_package
 from .tools.registry import default_tool_registry
 
 
 app = typer.Typer(
-    help="Authorized defensive web assessment framework.",
+    help="Pengetic: authorized defensive web assessment framework.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -84,7 +84,7 @@ def approve(
         scope = load_scope_package(scope_path)
         workspace = build_workspace(scope, artifacts_root)
         if not workspace.plan_path.exists():
-            raise ScopeGuardError("No plan file exists yet. Run 'scopeguard plan' first.")
+            raise PengeticError("No plan file exists yet. Run 'pengetic plan' first.")
         plan = AssessmentPlan.model_validate_json(workspace.plan_path.read_text(encoding="utf-8"))
         action = plan.get_action(action_id)
         if action.classification == RiskLevel.passive_safe:
@@ -101,7 +101,7 @@ def approve(
         store.append(approval)
         typer.echo(f"Approval recorded for {action_id} at {workspace.approvals_path}")
     except KeyError:
-        _handle_error(ScopeGuardError(f"Unknown action id: {action_id}"))
+        _handle_error(PengeticError(f"Unknown action id: {action_id}"))
     except Exception as exc:
         _handle_error(exc)
 
@@ -145,7 +145,7 @@ def report(
         run_dir = load_latest_run(workspace, run_id)
         report_path = run_dir / "report.md"
         if not report_path.exists():
-            raise ScopeGuardError(f"Run report does not exist: {report_path}")
+            raise PengeticError(f"Run report does not exist: {report_path}")
         report_text = report_path.read_text(encoding="utf-8")
         if output is not None:
             output.write_text(report_text, encoding="utf-8")
@@ -154,4 +154,3 @@ def report(
             typer.echo(report_text)
     except Exception as exc:
         _handle_error(exc)
-

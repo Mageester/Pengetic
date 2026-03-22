@@ -23,7 +23,7 @@ def render_report(scope: ScopePackage, plan: AssessmentPlan, run_summary: Any) -
     skipped = [outcome for outcome in run_summary.outcomes if outcome.status != "executed"]
 
     lines: list[str] = []
-    lines.append("# ScopeGuard Assessment Report")
+    lines.append("# Pengetic Assessment Report")
     lines.append("")
     lines.append(_heading("Executive Summary"))
     lines.append(
@@ -109,4 +109,3 @@ def render_report(scope: ScopePackage, plan: AssessmentPlan, run_summary: Any) -
     lines.append(_bullet(f"Report generated at: {run_summary.report_generated_at.isoformat()}"))
 
     return "\n".join(lines).rstrip() + "\n"
-

@@ -4,6 +4,7 @@ Every run produces:
 
 - an append-only JSONL audit log
 - redacted evidence artifacts
+- SQLite records for runs, approvals, findings, and artifacts
 - a Markdown report
 
 The report includes:
@@ -16,4 +17,3 @@ The report includes:
 - evidence
 - limitations
 - run metadata
-

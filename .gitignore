@@ -16,6 +16,10 @@ env/
 # Runtime artifacts
 artifacts/*
 !artifacts/.gitkeep
+data/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
 
 # OS/editor noise
 Thumbs.db

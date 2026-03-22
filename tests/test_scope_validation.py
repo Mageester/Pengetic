@@ -11,8 +11,8 @@ from scopeguard.scope.loader import load_scope_package
 
 def test_demo_scope_loads() -> None:
     scope = load_scope_package(Path("examples/scope.demo.yaml"))
-    assert scope.primary_domain == "demo.example"
-    assert scope.base_host == "demo.example"
+    assert scope.primary_domain == "getaxiom.ca"
+    assert scope.base_host == "getaxiom.ca"
     assert "header-review" in scope.tool_allowlist
 
 
@@ -56,4 +56,3 @@ def test_rejects_unlisted_allowed_url_host(tmp_path: Path) -> None:
 
     with pytest.raises(ScopeValidationError):
         load_scope_package(scope_path)
-

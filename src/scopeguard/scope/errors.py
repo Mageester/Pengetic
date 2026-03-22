@@ -1,15 +1,14 @@
-class ScopeGuardError(Exception):
-    """Base class for ScopeGuard exceptions."""
+class PengeticError(Exception):
+    """Base class for Pengetic exceptions."""
 
 
-class ScopeValidationError(ScopeGuardError):
+class ScopeValidationError(PengeticError):
     """Raised when a scope package fails validation."""
 
 
-class PolicyError(ScopeGuardError):
+class PolicyError(PengeticError):
     """Raised when a policy or approval gate blocks an action."""
 
 
-class ExecutionError(ScopeGuardError):
+class ExecutionError(PengeticError):
     """Raised when a tool or run cannot be executed safely."""
-

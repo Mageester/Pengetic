@@ -53,9 +53,8 @@ def test_report_contains_expected_sections() -> None:
 
     report = render_report(scope, plan, run_summary)
 
-    assert "# ScopeGuard Assessment Report" in report
+    assert "# Pengetic Assessment Report" in report
     assert "Executive Summary" in report
     assert "Missing HSTS header" in report
     assert "Execution Summary" in report
     assert "Limitations" in report
-

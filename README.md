@@ -147,6 +147,8 @@ This creates `frontend/dist`, which `pengetic serve` uses to serve the productio
 
 ```bash
 pengetic serve
+# or
+python -m pengetic serve
 ```
 
 ### 5. Start the GUI in development mode

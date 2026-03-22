@@ -1,0 +1,43 @@
+version: 1
+name: Demo Assessment
+primary_domain: yourdomain.com
+base_url: https://yourdomain.com
+allowed_subdomains:
+  - www.yourdomain.com
+  - app.yourdomain.com
+allowed_urls:
+  - https://yourdomain.com/
+  - https://yourdomain.com/login
+  - https://app.yourdomain.com/dashboard
+out_of_scope_assets:
+  - admin.yourdomain.com
+  - billing.vendor.example
+login_areas_allowed:
+  - /login
+  - /signin
+apis_allowed:
+  - /api
+  - /graphql
+tool_allowlist:
+  - header-review
+  - tls-review
+  - robots-fetch
+  - sitemap-fetch
+  - route-inventory
+  - tech-fingerprint
+  - manual-review
+  - approved-login-surface-probe
+  - approved-api-surface-probe
+  - approved-rate-limit-probe
+rate_limits:
+  max_requests_per_minute: 60
+  max_concurrent_requests: 2
+  delay_seconds_between_requests: 0.5
+testing_window:
+  start: 2026-03-22T00:00:00Z
+  end: 2026-03-29T23:59:59Z
+authorization_note: Authorized by the site owner for defensive assessment only.
+contacts:
+  - security@getaxiom.ca
+notes: Demo scope for local testing.
+

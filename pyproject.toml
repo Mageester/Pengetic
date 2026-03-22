@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scopeguard"
+version = "0.1.0"
+description = "Authorized defensive web assessment framework"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "typer>=0.24",
+  "pydantic>=2.12",
+  "PyYAML>=6.0",
+  "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9"]
+
+[project.scripts]
+scopeguard = "scopeguard.cli:app"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+

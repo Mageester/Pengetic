@@ -11,8 +11,7 @@ import threading
 import anyio
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse, Response, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 
 from scopeguard.evidence.redaction import redact_sensitive_value
 from scopeguard.findings.models import Finding
@@ -90,6 +89,88 @@ class RunEventHub:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _frontend_fallback_response() -> HTMLResponse:
+    return HTMLResponse(
+        """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pengetic</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        background: #08111f;
+        color: #d7e7ff;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at top, rgba(59, 130, 246, 0.18), transparent 40%),
+          linear-gradient(180deg, #08111f 0%, #050a14 100%);
+      }
+      main {
+        width: min(720px, calc(100vw - 3rem));
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 20px;
+        padding: 2rem;
+        background: rgba(15, 23, 42, 0.8);
+        box-shadow: 0 30px 90px rgba(2, 6, 23, 0.45);
+      }
+      h1 { margin: 0 0 0.75rem; font-size: 2rem; }
+      p { line-height: 1.6; color: #b8c7dd; }
+      code {
+        padding: 0.15rem 0.4rem;
+        border-radius: 6px;
+        background: rgba(15, 23, 42, 0.9);
+        color: #9cc5ff;
+      }
+      ul { line-height: 1.7; color: #c8d5e8; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Pengetic frontend is not built yet</h1>
+      <p>The API is running, but the compiled React UI was not found at <code>frontend/dist</code>.</p>
+      <p>Build the frontend once after installing dependencies:</p>
+      <ul>
+        <li><code>cd frontend</code></li>
+        <li><code>npm install</code></li>
+        <li><code>npm run build</code></li>
+      </ul>
+      <p>After that, restart <code>pengetic serve</code> and the GUI will load normally.</p>
+    </main>
+  </body>
+</html>
+        """.strip(),
+        media_type="text/html",
+    )
+
+
+def _frontend_index_response(app_settings: AppSettings) -> Response:
+    index_path = app_settings.paths.frontend_dist_dir / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return _frontend_fallback_response()
+
+
+def _frontend_asset_response(app_settings: AppSettings, asset_path: str) -> Response:
+    assets_root = (app_settings.paths.frontend_dist_dir / "assets").resolve()
+    requested_asset = (assets_root / asset_path).resolve()
+    try:
+        requested_asset.relative_to(assets_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Frontend asset not found.") from exc
+    if not requested_asset.exists() or not requested_asset.is_file():
+        raise HTTPException(status_code=404, detail="Frontend asset not found.")
+    return FileResponse(requested_asset)
 
 
 def _scope_view(scope: dict[str, Any] | None) -> ScopeSummary | None:
@@ -725,26 +806,18 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
 
     @app.get("/")
     def serve_root() -> Response:
-        index_path = app_settings.paths.frontend_dist_dir / "index.html"
-        if index_path.exists():
-            return FileResponse(index_path)
-        return PlainTextResponse(
-            "Pengetic backend is running. Build the frontend with `npm install` and `npm run build` in /frontend.",
-            status_code=200,
-        )
+        return _frontend_index_response(app_settings)
+
+    @app.get("/assets/{asset_path:path}")
+    def serve_frontend_asset(asset_path: str) -> Response:
+        return _frontend_asset_response(app_settings, asset_path)
 
     @app.get("/{path:path}")
     def serve_frontend(path: str) -> Response:
         if path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found.")
-        index_path = app_settings.paths.frontend_dist_dir / "index.html"
-        if index_path.exists():
-            return FileResponse(index_path)
-        raise HTTPException(status_code=404, detail="Frontend build not found.")
-
-    if app_settings.paths.frontend_dist_dir.exists():
-        assets_dir = app_settings.paths.frontend_dist_dir / "assets"
-        if assets_dir.exists():
-            app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+        if path.startswith("assets/"):
+            raise HTTPException(status_code=404, detail="Frontend asset not found.")
+        return _frontend_index_response(app_settings)
 
     return app

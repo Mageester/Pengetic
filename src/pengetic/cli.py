@@ -34,6 +34,13 @@ def serve(
     reload: Annotated[bool, typer.Option("--reload/--no-reload")] = False,
 ) -> None:
     settings = load_settings()
+    if settings.paths.frontend_dist_dir.exists():
+        typer.echo(f"Serving built frontend from {settings.paths.frontend_dist_dir}")
+    else:
+        typer.echo(
+            "Frontend build output not found. The root page will show a setup hint until you run "
+            "`cd frontend && npm install && npm run build`."
+        )
     import uvicorn
 
     uvicorn.run(

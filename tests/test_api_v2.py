@@ -317,3 +317,33 @@ def test_v2_api_supports_scope_run_approval_resume_and_reporting(tmp_path: Path,
         assert planner_payload["source"] == "ollama"
         assert planner_payload["recommended_action_id"] == "active-login-surface-probe"
         assert planner_payload["next_allowed_step"] == "Execute the approved login probe."
+
+
+def test_v2_frontend_assets_are_served_as_static_files(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("PENGETIC_ROOT", str(tmp_path))
+    monkeypatch.setenv("PENGETIC_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("PENGETIC_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
+    frontend_dist = tmp_path / "frontend-dist"
+    assets_dir = frontend_dist / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    (frontend_dist / "index.html").write_text(
+        "<!doctype html><html><body><div id=\"root\"></div><script type=\"module\" src=\"/assets/app-123.js\"></script></body></html>",
+        encoding="utf-8",
+    )
+    (assets_dir / "app-123.js").write_text("console.log('Pengetic asset');", encoding="utf-8")
+    monkeypatch.setenv("PENGETIC_FRONTEND_DIST", str(frontend_dist))
+
+    app = create_app()
+    with TestClient(app) as client:
+        asset_response = client.get("/assets/app-123.js")
+        assert asset_response.status_code == 200, asset_response.text
+        assert "text/html" not in asset_response.headers["content-type"]
+        assert "javascript" in asset_response.headers["content-type"]
+        assert "Pengetic asset" in asset_response.text
+
+        app_route = client.get("/dashboard")
+        assert app_route.status_code == 200, app_route.text
+        assert "<div id=\"root\"></div>" in app_route.text
+
+        missing_asset = client.get("/assets/missing.js")
+        assert missing_asset.status_code == 404, missing_asset.text

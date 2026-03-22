@@ -134,20 +134,31 @@ cd frontend
 npm install
 ```
 
-### 3. Start the API server
+### 3. Build the frontend
+
+```bash
+cd frontend
+npm run build
+```
+
+This creates `frontend/dist`, which `pengetic serve` uses to serve the production UI.
+
+### 4. Start the API server and built UI
 
 ```bash
 pengetic serve
 ```
 
-### 4. Start the GUI in development mode
+### 5. Start the GUI in development mode
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-The Vite dev server proxies API calls to `http://127.0.0.1:8000`.
+Use the Vite dev server only for frontend development. It proxies API calls to `http://127.0.0.1:8000`.
+
+If `frontend/dist` is missing, `pengetic serve` will show a clear setup page instead of a blank UI. Asset routes such as `/assets/*.js` are served as static files only and never fall back to `index.html`.
 
 ## CLI
 
@@ -216,4 +227,3 @@ The planner is constrained to:
 - [Risk policy](docs/risk-policy.md)
 - [Audit and reporting](docs/audit-reporting.md)
 - [Implementation plan](docs/implementation-plan.md)
-

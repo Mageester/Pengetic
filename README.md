@@ -316,30 +316,32 @@ pengetic paths
 
 ## GUI Surfaces
 
-The web UI is organized into seven views:
+The default navigation is intentionally simple:
 
-1. Assessment dashboard
-2. Scope upload and validation
-3. Plan viewer with risk labels
-4. Live run view with logs, structured evidence, service inventory, and findings
-5. Approval queue for gated actions
-6. Report viewer and export
-7. Planner panel for the Ollama-backed suggestion service and next-safe-step guidance
+1. Dashboard
+2. Results
+3. Approvals
+4. Report
+5. Settings
 
-The dashboard follows the operational flow:
+The dashboard follows the operator flow:
 
-1. Scope Definition
-2. Automated Discovery
-3. State Analysis
-4. Evidence Aggregation
-5. Reporting
+1. Target
+2. Mode
+3. Start
+4. Results
+5. Report
+
+Advanced scope, plan, and planner details stay behind collapsible panels.
 
 Additional operator controls include:
 
 - one-click scope template generation
-- model selection and backend-default toggling
+- saved model selection in Settings
 - Engine Pulse health status
-- workspace purge with typed confirmation
+- reset current scope with typed confirmation
+- delete current-scope runs with typed confirmation
+- factory reset workspace with typed confirmation
 
 ## Persistence
 
@@ -389,6 +391,11 @@ The reset:
 - removes generated artifacts and logs
 - resets scope, plan, run, and planner state
 - restores the backend to a clean workspace state
+
+There are also narrower reset actions in Settings:
+
+- `RESET_SCOPE` clears the current scope, plan, and run link
+- `DELETE_RUNS` deletes runs for the current scope only
 
 ## LLM Planner
 

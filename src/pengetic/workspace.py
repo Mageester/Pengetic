@@ -5,6 +5,9 @@ from pathlib import Path
 import shutil
 from typing import Any
 
+from scopeguard.runtime import build_workspace
+from scopeguard.scope.models import ScopePackage
+
 from .settings import AppSettings
 from .storage import PengeticStore
 
@@ -84,5 +87,52 @@ class WorkspaceReset:
         self.store.set_selected_ollama_model(None)
         return {
             "status": "purged",
+            "removed_paths": removed_paths,
+        }
+
+    def reset_current_scope(self, *, confirmation: str) -> dict[str, Any]:
+        if confirmation.strip() != "RESET_SCOPE":
+            raise ValueError("Confirmation string must exactly match RESET_SCOPE.")
+
+        scope_id = self.store.current_scope_id()
+        self.store.set_current_scope(None)
+        self.store.set_current_plan(None)
+        self.store.set_current_run(None)
+        self.store.set_assessment_state(None)
+        return {
+            "status": "reset",
+            "scope_id": scope_id,
+        }
+
+    def delete_runs_for_current_scope(self, *, confirmation: str) -> dict[str, Any]:
+        if confirmation.strip() != "DELETE_RUNS":
+            raise ValueError("Confirmation string must exactly match DELETE_RUNS.")
+
+        scope_row = self.store.get_current_scope()
+        if scope_row is None:
+            return {
+                "status": "no-scope",
+                "scope_id": None,
+                "deleted_run_ids": [],
+                "removed_paths": [],
+            }
+
+        scope = ScopePackage.model_validate(scope_row["scope_json"])
+        workspace = build_workspace(scope, self.settings.paths.artifacts_dir)
+        workspace.ensure()
+        deleted_run_ids = self.store.delete_runs_for_scope(scope_row["id"])
+        removed_paths: list[str] = []
+        for run_id in deleted_run_ids:
+            run_dir = workspace.runs_dir / run_id
+            if run_dir.exists():
+                removed_paths.append(str(run_dir))
+                shutil.rmtree(run_dir)
+        if self.store.current_scope_id() == scope_row["id"]:
+            self.store.set_current_run(None)
+            self.store.set_assessment_state(None)
+        return {
+            "status": "deleted",
+            "scope_id": scope_row["id"],
+            "deleted_run_ids": deleted_run_ids,
             "removed_paths": removed_paths,
         }

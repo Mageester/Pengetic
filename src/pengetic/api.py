@@ -62,9 +62,14 @@ from .schemas import (
     ToolArtifactView,
     ToolResultView,
     ScopeSummary,
+    ScopeActivationResponse,
     ScopeTemplateRequest,
     ScopeTemplateResponse,
     ScopeUploadResponse,
+    ScopeResetRequest,
+    ScopeResetResponse,
+    ScopeRunsDeleteRequest,
+    ScopeRunsDeleteResponse,
     WorkspacePurgeRequest,
     WorkspacePurgeResponse,
 )
@@ -669,6 +674,20 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     def current_scope() -> ScopeSummary | None:
         return _scope_view(store.get_current_scope())
 
+    @app.post("/api/scopes/{scope_id}/activate", response_model=ScopeActivationResponse)
+    def activate_scope(scope_id: str) -> ScopeActivationResponse:
+        scope = store.get_scope(scope_id)
+        if scope is None:
+            raise HTTPException(status_code=404, detail="Scope not found.")
+        store.set_current_scope(scope_id)
+        store.set_current_plan(None)
+        store.set_current_run(None)
+        store.set_assessment_state(None)
+        current_scope_view = _scope_view(scope)
+        if current_scope_view is None:
+            raise HTTPException(status_code=404, detail="Scope not found.")
+        return ScopeActivationResponse.model_validate({"scope": current_scope_view, "status": "activated"})
+
     @app.get("/api/scopes", response_model=list[ScopeSummary])
     def list_scopes() -> list[ScopeSummary]:
         return [view for scope in store.list_scopes() if (view := _scope_view(scope)) is not None]
@@ -774,6 +793,24 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
                 "validation_message": f"Template {request.template_id} generated and validated for {scope.name}.",
             }
         )
+
+    @app.post("/api/scopes/current/reset", response_model=ScopeResetResponse)
+    def reset_current_scope(request: ScopeResetRequest) -> ScopeResetResponse:
+        reset = WorkspaceReset(store=store, settings=app_settings)
+        try:
+            outcome = reset.reset_current_scope(confirmation=request.confirmation)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ScopeResetResponse.model_validate(outcome)
+
+    @app.post("/api/scopes/current/runs/delete", response_model=ScopeRunsDeleteResponse)
+    def delete_current_scope_runs(request: ScopeRunsDeleteRequest) -> ScopeRunsDeleteResponse:
+        reset = WorkspaceReset(store=store, settings=app_settings)
+        try:
+            outcome = reset.delete_runs_for_current_scope(confirmation=request.confirmation)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ScopeRunsDeleteResponse.model_validate(outcome)
 
     @app.get("/api/runs", response_model=list[RunView])
     def list_runs(limit: int = 20, scope_id: str | None = None) -> list[RunView]:
@@ -1077,6 +1114,11 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         )
         service = OllamaPlannerService(base_url=app_settings.ollama_base_url, model=request.model or app_settings.ollama_model)
         suggestion = await service.suggest(context, model=request.model)
+        approval_required = False
+        if suggestion.recommended_action_id:
+            recommended_action = next((action for action in plan.actions if action.action_id == suggestion.recommended_action_id), None)
+            if recommended_action is not None:
+                approval_required = recommended_action.approval_required or recommended_action.classification != RiskLevel.passive_safe
         store.store_llm_recommendation(
             run_id=run["id"] if run else None,
             scope_id=scope["id"],
@@ -1089,7 +1131,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             confidence=suggestion.confidence,
             raw_json=suggestion.raw,
         )
-        return LLMPlannerResponse.model_validate(suggestion.model_dump())
+        return LLMPlannerResponse.model_validate({**suggestion.model_dump(), "approval_required": approval_required})
 
     @app.post("/api/runs/{run_id}/orchestrate", response_model=OrchestratorRunResponse)
     async def orchestrate_run(run_id: str, request: OrchestratorRunRequest) -> OrchestratorRunResponse:

@@ -245,6 +245,7 @@ export interface LLMPlannerResponse {
   evidence_references: string[];
   next_allowed_step: string;
   recommended_action_id: string | null;
+  approval_required: boolean;
   rationale: string;
   confidence: string;
   raw: Record<string, unknown>;
@@ -289,6 +290,23 @@ export interface ScopeTemplateResponse {
   scope: ScopeSummary;
   plan: PlanView;
   validation_message: string;
+}
+
+export interface ScopeActivationResponse {
+  scope: ScopeSummary;
+  status: string;
+}
+
+export interface ScopeResetResponse {
+  status: string;
+  scope_id: string | null;
+}
+
+export interface ScopeRunsDeleteResponse {
+  status: string;
+  scope_id: string | null;
+  deleted_run_ids: string[];
+  removed_paths: string[];
 }
 
 export interface WorkspacePurgeRequest {

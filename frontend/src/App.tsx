@@ -6,13 +6,16 @@ import {
   Database,
   FileDown,
   FileText,
+  Gauge,
   LayoutDashboard,
   ListChecks,
+  Radar,
   PlayCircle,
   RefreshCw,
   ShieldCheck,
   Sparkles,
   TerminalSquare,
+  Target,
   Upload,
   Trash2,
   Workflow,
@@ -58,40 +61,38 @@ const sections: Array<{
   description: string;
   icon: LucideIcon;
 }> = [
-  { id: "overview", label: "Workflow", description: "Five-stage lifecycle", icon: LayoutDashboard },
-  { id: "scope", label: "Scope Definition", description: "Upload or generate", icon: Upload },
-  { id: "plan", label: "Automated Discovery", description: "Risk-labelled actions", icon: ListChecks },
-  { id: "run", label: "State Analysis", description: "Logs, evidence, findings", icon: PlayCircle },
-  { id: "approvals", label: "Evidence Aggregation", description: "Gated queue and artifacts", icon: Workflow },
-  { id: "reports", label: "Reporting", description: "Markdown export", icon: FileDown },
-  { id: "planner", label: "Planner", description: "Local Ollama summary", icon: Brain },
+  { id: "overview", label: "Assessment", description: "Target, mode, start", icon: LayoutDashboard },
+  { id: "run", label: "Results", description: "Findings and evidence", icon: PlayCircle },
+  { id: "approvals", label: "Approvals", description: "Queued actions", icon: Workflow },
+  { id: "reports", label: "Report", description: "Export summary", icon: FileDown },
+  { id: "planner", label: "Settings", description: "Model and reset", icon: Brain },
 ];
 
 const workflowStages = [
   {
     id: "scope",
-    title: "Scope Definition",
-    description: "Validate an uploaded scope or generate one from a template.",
+    title: "Target",
+    description: "Pick or create the scope.",
   },
   {
     id: "plan",
-    title: "Automated Discovery",
-    description: "Review the risk-labelled plan and approve any gated discovery.",
+    title: "Mode",
+    description: "Choose what to run.",
   },
   {
     id: "run",
-    title: "State Analysis",
-    description: "Inspect the live run, event stream, planner output, and service analysis.",
+    title: "Start",
+    description: "Launch the assessment.",
   },
   {
     id: "approvals",
-    title: "Evidence Aggregation",
-    description: "Review findings, artifacts, and the queue of explicit approvals.",
+    title: "Results",
+    description: "Review findings and evidence.",
   },
   {
     id: "reports",
-    title: "Reporting",
-    description: "Export the persisted Markdown report from the final state.",
+    title: "Report",
+    description: "Export the final summary.",
   },
 ];
 
@@ -344,8 +345,6 @@ function EvidenceDetail({
       <div className="grid gap-4 md:grid-cols-2">
         <LabeledValue label="Target" value={summarizeTarget(result.target)} />
         <LabeledValue label="Timestamp" value={formatTimestamp(result.timestamp)} />
-        <LabeledValue label="Run" value={<span className="font-mono text-xs">{result.run_id}</span>} />
-        <LabeledValue label="Scope" value={<span className="font-mono text-xs">{result.scope_id.slice(0, 12) || "-"}</span>} />
       </div>
       <div className="flex flex-wrap gap-2">
         <button
@@ -378,6 +377,15 @@ function EvidenceDetail({
           {formatJsonValue(activeTab === "raw" ? result.raw_output : result.parsed_output)}
         </pre>
       </div>
+      <details className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+        <summary className="cursor-pointer list-none text-sm font-semibold text-white">
+          Advanced
+        </summary>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <LabeledValue label="Run ID" value={<span className="font-mono text-xs">{result.run_id}</span>} />
+          <LabeledValue label="Scope ID" value={<span className="font-mono text-xs">{result.scope_id}</span>} />
+        </div>
+      </details>
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
           <div className="mb-3 text-sm font-semibold text-white">Findings candidates</div>
@@ -483,6 +491,8 @@ function App() {
   const [includeApprovedActive, setIncludeApprovedActive] = useState(false);
   const [plannerModel, setPlannerModel] = useState("");
   const [useBackendDefaultModel, setUseBackendDefaultModel] = useState(true);
+  const [scopeResetConfirm, setScopeResetConfirm] = useState("");
+  const [scopeRunsDeleteConfirm, setScopeRunsDeleteConfirm] = useState("");
   const [purgeOpen, setPurgeOpen] = useState(false);
   const [purgeConfirm, setPurgeConfirm] = useState("");
   const [purgeBusy, setPurgeBusy] = useState(false);
@@ -749,6 +759,54 @@ function App() {
     }
   }
 
+  async function handleResetCurrentScope() {
+    if (scopeResetConfirm.trim() !== "RESET_SCOPE") {
+      setError("Type RESET_SCOPE to reset the current scope.");
+      return;
+    }
+    setBusyAction("reset-scope");
+    setError(null);
+    try {
+      await api.resetCurrentScope("RESET_SCOPE");
+      setSelectedRunId(null);
+      setSelectedRun(null);
+      setReport(null);
+      setPlannerResult(null);
+      setSelectedEvidenceId(null);
+      setEvidenceTab("parsed");
+      setScopeResetConfirm("");
+      await refreshSnapshot();
+    } catch (caught) {
+      setError(normalizeError(caught));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleDeleteCurrentScopeRuns() {
+    if (scopeRunsDeleteConfirm.trim() !== "DELETE_RUNS") {
+      setError("Type DELETE_RUNS to delete runs for the current scope.");
+      return;
+    }
+    setBusyAction("delete-scope-runs");
+    setError(null);
+    try {
+      await api.deleteCurrentScopeRuns("DELETE_RUNS");
+      setSelectedRunId(null);
+      setSelectedRun(null);
+      setReport(null);
+      setPlannerResult(null);
+      setSelectedEvidenceId(null);
+      setEvidenceTab("parsed");
+      setScopeRunsDeleteConfirm("");
+      await refreshSnapshot();
+    } catch (caught) {
+      setError(normalizeError(caught));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function handleApprove(action: RunActionView) {
     const draft = approvalDrafts[action.action_id] ?? {
       approved_by: "analyst",
@@ -832,6 +890,39 @@ function App() {
   ];
 
   const sidebarState = dashboard?.state ?? "idle";
+  const selectedModelName = modelSettings?.selected_model ?? enginePulse?.selected_model ?? "Not set";
+  const suggestedModel = enginePulse?.available_models.find((name) => name !== selectedModelName) ?? enginePulse?.available_models[0] ?? null;
+  const modelUnavailable = enginePulse?.selected_model_available === false;
+  const primaryAssessmentLabel = !currentScope
+    ? "Create assessment"
+    : currentRun
+      ? currentRun.state === "awaiting_approval"
+        ? "Review approvals"
+        : currentRun.state === "completed"
+          ? "View report"
+          : "Continue assessment"
+      : "Start assessment";
+  const primaryAssessmentAction =
+    !currentScope
+      ? () => setSection("scope")
+      : currentRun
+        ? currentRun.state === "awaiting_approval"
+          ? () => setSection("approvals")
+          : currentRun.state === "completed"
+            ? () => setSection("reports")
+            : () => setSection("run")
+        : () => void handleStartRun();
+  const nextStepText = !currentScope
+    ? "Create an assessment to begin."
+    : currentRun
+      ? currentRun.state === "awaiting_approval"
+        ? "Review approvals to continue."
+        : liveStates.has(currentRun.state)
+          ? "Assessment is running. Watch progress in Results."
+          : currentRun.state === "completed"
+            ? "View the report."
+            : "Continue the assessment."
+      : "Start the assessment.";
 
   return (
     <div className="relative min-h-screen">
@@ -881,11 +972,11 @@ function App() {
             <div className="mt-auto space-y-3 border-t border-white/5 pt-5 text-xs text-slate-500">
               <div className="flex items-center gap-2">
                 <Database className="h-4 w-4 text-red-300/70" />
-                SQLite-backed runs, approvals, findings, and artifacts.
+                Stored runs, approvals, findings, and evidence.
               </div>
               <div className="flex items-center gap-2">
                 <TerminalSquare className="h-4 w-4 text-red-300/70" />
-                LLM planner uses Ollama through the OpenAI-compatible API.
+                Guidance uses Ollama through the OpenAI-compatible API.
               </div>
             </div>
           </div>
@@ -901,17 +992,15 @@ function App() {
                     {currentScope ? currentScope.name : "No validated scope loaded"}
                   </Badge>
                   <Badge className="border-white/10 bg-white/5 text-slate-200">
-                    {currentRun ? `Run ${currentRun.id.slice(0, 8)}` : "No run selected"}
+                    {currentRun ? "Latest run loaded" : "No run selected"}
                   </Badge>
                 </div>
                 <div className="space-y-2">
                   <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                    Pengetic operations console
+                    Pengetic assessment console
                   </h1>
                   <p className="max-w-3xl text-sm leading-7 text-slate-400 sm:text-base">
-                    Upload an authorized scope, inspect the risk-labelled plan, launch a local-first run,
-                    approve non-passive steps, and export a report without giving the planner unrestricted
-                    execution power.
+                    Target, mode, start. Review results, approve gated steps, and export the report.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-sm text-slate-400">
@@ -933,19 +1022,11 @@ function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void handlePlanner()}
+                  onClick={() => setSection("planner")}
                   className={cx(buttonBase, "border-red-400/20 bg-red-500/10 text-red-100")}
                 >
-                  <Sparkles className="h-4 w-4" />
-                  Ask planner
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPurgeOpen(true)}
-                  className={cx(buttonBase, "border-rose-500/20 bg-rose-500/10 text-rose-100")}
-                >
-                  <Workflow className="h-4 w-4" />
-                  Purge workspace
+                  <Brain className="h-4 w-4" />
+                  Settings
                 </button>
               </div>
             </div>
@@ -960,230 +1041,154 @@ function App() {
             <>
               {section === "overview" ? (
                 <div className="space-y-6">
-                  <div className={cx(panelBase, "p-5")}>
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                      <div>
+                  <div className={cx(panelBase, "p-6")}>
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="max-w-3xl space-y-3">
                         <p className="text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-red-300/80">
-                          Operational flow
+                          Assessment
                         </p>
-                        <h2 className="mt-1 text-xl font-semibold tracking-tight text-white">
-                          Scope to report, in a single approved sequence
+                        <h2 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+                          {currentScope ? currentScope.name : "Create an assessment to begin"}
                         </h2>
-                        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-                          Pengetic keeps the lifecycle linear: define scope, discover the surface, analyze state,
-                          aggregate evidence, then export the report.
+                        <p className="text-sm leading-6 text-slate-400">
+                          {currentScope
+                            ? "Confirm the target, choose a scan mode, and continue the active assessment."
+                            : "Create an assessment, choose a target, and Pengetic will guide the next step."}
                         </p>
                       </div>
-                      <button type="button" onClick={() => setSection("scope")} className={buttonBase}>
-                        <Workflow className="h-4 w-4" />
-                        Start with scope
-                      </button>
-                    </div>
-                    <div className="mt-5 grid gap-4 lg:grid-cols-5">
-                      {workflowStages.map((stage, index) => (
-                        <button
-                          key={stage.id}
-                          type="button"
-                          onClick={() => setSection(stage.id as SectionId)}
-                          className={cx(
-                            "group rounded-3xl border p-4 text-left transition",
-                            section === stage.id
-                              ? "border-red-400/30 bg-red-500/10"
-                              : "border-white/10 bg-white/[0.03] hover:border-red-400/20 hover:bg-white/[0.05]",
-                          )}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                              Stage {index + 1}
-                            </span>
-                            <span
-                              className={cx(
-                                "h-2.5 w-2.5 rounded-full",
-                                section === stage.id ? "bg-red-400" : "bg-slate-600",
-                              )}
-                            />
-                          </div>
-                          <h3 className="mt-4 text-base font-semibold text-white">{stage.title}</h3>
-                          <p className="mt-2 text-sm leading-6 text-slate-400">{stage.description}</p>
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" onClick={() => setSection("scope")} className={buttonBase}>
+                          <Upload className="h-4 w-4" />
+                          {currentScope ? "Change target" : "Choose target"}
                         </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                    {overviewMetrics.map((metric) => (
-                      <MetricCard
-                        key={metric.label}
-                        label={metric.label}
-                        value={metric.value}
-                        detail={metric.detail}
-                        tone={metric.tone}
-                      />
-                    ))}
-                  </div>
-
-                  <div className="grid gap-6 xl:grid-cols-3">
-                    <Card eyebrow="Assessment" title="Start a run">
-                      <div className="grid gap-4">
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <div className="space-y-2">
-                            <Label text="Profile" hint="Controls passive/approved execution" />
-                            <select
-                              value={runProfile}
-                              onChange={(event) => setRunProfile(event.target.value)}
-                              className={selectBase}
-                            >
-                              <option value="passive-only">passive-only</option>
-                              <option value="report-only">report-only</option>
-                              <option value="lab-safe">lab-safe</option>
-                            </select>
-                          </div>
-                          <div className="space-y-2">
-                            <Label text="Approved active" hint="Allow approved active steps" />
-                            <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200">
-                              <input
-                                type="checkbox"
-                                checked={includeApprovedActive}
-                                onChange={(event) => setIncludeApprovedActive(event.target.checked)}
-                                className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-red-500 focus:ring-red-400/30"
-                              />
-                              Execute approved active steps
-                            </label>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label text="Manual notes" hint="Stored with the run and redacted on write" />
-                          <textarea
-                            value={manualNotes}
-                            onChange={(event) => setManualNotes(event.target.value)}
-                            rows={4}
-                            className={textareaBase}
-                            placeholder="Optional analyst context, target notes, or review references."
-                          />
-                        </div>
                         <button
                           type="button"
-                          onClick={handleStartRun}
-                          className={cx(
-                            buttonBase,
-                            "w-full border-red-400/20 bg-red-400/15 text-red-50 hover:bg-red-400/20",
-                          )}
-                          disabled={busyAction === "start-run"}
+                          onClick={primaryAssessmentAction}
+                          className={cx(buttonBase, "border-red-400/20 bg-red-500/10 text-red-100")}
+                          disabled={primaryAssessmentLabel === "Start assessment" ? busyAction === "start-run" : false}
                         >
-                          {busyAction === "start-run" ? (
-                            <RefreshCw className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <PlayCircle className="h-4 w-4" />
-                          )}
-                          Start assessment
+                          {busyAction === "start-run" ? <RefreshCw className="h-4 w-4 animate-spin" /> : currentRun ? <PlayCircle className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+                          {primaryAssessmentLabel}
                         </button>
                       </div>
-                    </Card>
+                    </div>
 
-                    <Card eyebrow="Boundary" title="Current scope">
-                      {currentScope ? (
-                        <div className="grid gap-4">
-                          <LabeledValue label="Name" value={currentScope.name} />
-                          <LabeledValue label="Base URL" value={currentScope.base_url} />
-                          <LabeledValue label="Authorized hosts" value={shortList(currentScope.authorized_hosts)} />
-                          <LabeledValue
-                            label="Allowed routes"
-                            value={shortList([...currentScope.login_areas_allowed, ...currentScope.apis_allowed])}
-                          />
-                          <LabeledValue label="Tool allowlist" value={shortList(currentScope.tool_allowlist)} />
-                        </div>
-                      ) : (
-                        <EmptyState
-                          title="No validated scope"
-                          description="Upload a signed-off scope package to unlock plan generation and execution."
-                          icon={Upload}
-                        />
-                      )}
-                    </Card>
-
-                    <Card eyebrow="Recent run" title="Latest assessment">
-                      {currentRun ? (
-                        <div className="grid gap-4">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge className={stateTone(currentRun.state)}>{titleCase(currentRun.state)}</Badge>
-                            <Badge className={statusTone(currentRun.status)}>{statusLabel(currentRun.status)}</Badge>
+                    <div className="mt-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                      <div className="grid gap-4">
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+                            <Target className="h-4 w-4 text-red-300/80" />
+                            Current target
                           </div>
-                          <LabeledValue label="Run ID" value={<span className="font-mono text-xs">{currentRun.id}</span>} />
-                          <LabeledValue label="Scope" value={currentRun.scope_name} />
-                          <LabeledValue label="Profile" value={currentRun.profile} />
-                          <LabeledValue label="Started" value={formatTimestamp(currentRun.started_at)} />
-                          <LabeledValue label="Finished" value={formatTimestamp(currentRun.finished_at)} />
-                          <LabeledValue label="Report" value={currentRun.report_path ?? "Pending"} />
-                        </div>
-                      ) : (
-                        <EmptyState title="No run yet" description="Start the first assessment after upload." icon={PlayCircle} />
-                      )}
-                    </Card>
-                  </div>
-
-                  <div className="grid gap-6 xl:grid-cols-2">
-                    <Card eyebrow="Telemetry" title="Recent findings">
-                      {dashboard.recent_findings.length > 0 ? (
-                        <div className="space-y-4">
-                          {dashboard.recent_findings.map((finding) => (
-                            <div
-                              key={`${finding.title}-${finding.created_at}`}
-                              className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"
-                            >
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Badge className={severityTone(finding.severity)}>{titleCase(finding.severity)}</Badge>
-                                <span className="text-sm font-semibold text-white">{finding.title}</span>
-                              </div>
-                              <p className="mt-3 text-sm leading-6 text-slate-300">{finding.why_it_matters}</p>
-                              <p className="mt-2 text-sm leading-6 text-slate-400">{finding.remediation}</p>
+                          {currentScope ? (
+                            <div className="grid gap-3">
+                              <LabeledValue label="Target" value={currentScope.name} />
+                              <LabeledValue label="Address" value={currentScope.base_url} />
+                              <details className="rounded-3xl border border-white/10 bg-slate-950/70 p-4">
+                                <summary className="cursor-pointer list-none text-sm font-semibold text-white">Advanced</summary>
+                                <div className="mt-4 grid gap-3">
+                                  <LabeledValue label="Hosts" value={shortList(currentScope.authorized_hosts)} />
+                                  <LabeledValue label="Routes" value={shortList([...currentScope.login_areas_allowed, ...currentScope.apis_allowed])} />
+                                  <LabeledValue label="Tools" value={shortList(currentScope.tool_allowlist)} />
+                                </div>
+                              </details>
                             </div>
-                          ))}
+                          ) : (
+                            <EmptyState title="No assessment yet" description="Create one to begin." icon={Upload} />
+                          )}
                         </div>
-                      ) : (
-                        <EmptyState
-                          title="No findings yet"
-                          description="Passive checks have not produced any confirmed findings."
-                          icon={ShieldCheck}
-                        />
-                      )}
-                    </Card>
 
-                    <Card eyebrow="History" title="Recent runs">
-                      {dashboard.recent_runs.length > 0 ? (
-                        <div className="space-y-3">
-                          {dashboard.recent_runs.map((run) => (
-                            <button
-                              key={run.id}
-                              type="button"
-                              onClick={() => setSelectedRunId(run.id)}
-                              className={cx(
-                                "flex w-full items-start justify-between gap-4 rounded-2xl border px-4 py-3 text-left transition",
-                                selectedRunId === run.id
-                                  ? "border-red-400/30 bg-red-400/10"
-                                  : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]",
-                              )}
-                            >
-                              <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="font-semibold text-white">{run.scope_name}</span>
-                                  <Badge className={stateTone(run.state)}>{titleCase(run.state)}</Badge>
-                                </div>
-                                <div className="mt-1 text-xs text-slate-500">
-                                  {run.profile} | {formatShortTimestamp(run.started_at)} | {run.id.slice(0, 8)}
-                                </div>
-                              </div>
-                              <ArrowUpRight className="mt-1 h-4 w-4 text-slate-500" />
-                            </button>
-                          ))}
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+                            <Radar className="h-4 w-4 text-red-300/80" />
+                            Current step
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label text="Scan mode" hint="Choose the run profile" />
+                              <select value={runProfile} onChange={(event) => setRunProfile(event.target.value)} className={selectBase}>
+                                <option value="passive-only">Passive</option>
+                                <option value="report-only">Report only</option>
+                                <option value="lab-safe">Lab safe</option>
+                              </select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label text="Approved active" hint="Allow approved active steps" />
+                              <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200">
+                                <input
+                                  type="checkbox"
+                                  checked={includeApprovedActive}
+                                  onChange={(event) => setIncludeApprovedActive(event.target.checked)}
+                                  className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-red-500 focus:ring-red-400/30"
+                                />
+                                Approved active steps
+                              </label>
+                            </div>
+                          </div>
+                          <details className="mt-4 rounded-3xl border border-white/10 bg-slate-950/70 p-4">
+                            <summary className="cursor-pointer list-none text-sm font-semibold text-white">Advanced</summary>
+                            <div className="mt-4 space-y-2">
+                              <Label text="Manual notes" hint="Stored with the run and redacted on write" />
+                              <textarea
+                                value={manualNotes}
+                                onChange={(event) => setManualNotes(event.target.value)}
+                                rows={3}
+                                className={textareaBase}
+                                placeholder="Optional analyst notes."
+                              />
+                            </div>
+                          </details>
                         </div>
-                      ) : (
-                        <EmptyState
-                          title="No runs stored"
-                          description="The local SQLite store does not yet contain a run."
-                          icon={Database}
-                        />
-                      )}
-                    </Card>
+                      </div>
+
+                      <div className="grid gap-4">
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+                            <Gauge className="h-4 w-4 text-red-300/80" />
+                            Next step
+                          </div>
+                          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4 text-sm leading-6 text-red-50">
+                            {nextStepText}
+                          </div>
+                          <div className="mt-4 flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={primaryAssessmentAction}
+                              className={cx(buttonBase, "w-full border-red-400/20 bg-red-400/15 text-red-50 hover:bg-red-400/20")}
+                              disabled={primaryAssessmentLabel === "Start assessment" ? busyAction === "start-run" : false}
+                            >
+                              {busyAction === "start-run" ? (
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                              ) : currentRun ? (
+                                <PlayCircle className="h-4 w-4" />
+                              ) : (
+                                <Upload className="h-4 w-4" />
+                              )}
+                              {primaryAssessmentLabel}
+                            </button>
+                            <button type="button" onClick={() => setSection("run")} className={buttonBase}>
+                              <FileText className="h-4 w-4" />
+                              View results
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+                            <Clock3 className="h-4 w-4 text-red-300/80" />
+                            Current status
+                          </div>
+                          <div className="grid gap-3">
+                            <LabeledValue label="Status" value={titleCase(dashboard.state)} />
+                            <LabeledValue
+                              label="AI"
+                              value={enginePulse?.selected_model ? `${enginePulse.selected_model}${enginePulse.selected_model_available === false ? " unavailable" : " ready"}` : "AI unavailable"}
+                            />
+                            <LabeledValue label="Progress" value={currentRun ? titleCase(currentRun.state) : "Start"} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               ) : null}
@@ -1596,7 +1601,7 @@ function App() {
                         <option value="">Select a run</option>
                         {scopedRuns.map((run) => (
                           <option key={run.id} value={run.id}>
-                            {run.scope_name} | {run.profile} | {run.id.slice(0, 8)}
+                            {run.scope_name} | {run.profile} | {formatShortTimestamp(run.started_at)}
                           </option>
                         ))}
                       </select>
@@ -1627,17 +1632,16 @@ function App() {
                           <Badge className="border-red-400/20 bg-red-500/10 text-red-100">
                             {currentRun.scope_name}
                           </Badge>
-                          <Badge className="border-white/10 bg-white/5 text-slate-200">
-                            {currentRun.scope_fingerprint.slice(0, 12)}
-                          </Badge>
                         </div>
-
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <LabeledValue label="Run ID" value={<span className="font-mono text-xs">{currentRun.id}</span>} />
-                          <LabeledValue label="Scope" value={currentRun.scope_name} />
-                          <LabeledValue label="Started" value={formatTimestamp(currentRun.started_at)} />
-                          <LabeledValue label="Finished" value={formatTimestamp(currentRun.finished_at)} />
-                        </div>
+                        <details className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                          <summary className="cursor-pointer list-none text-sm font-semibold text-white">Advanced</summary>
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <LabeledValue label="Run ID" value={<span className="font-mono text-xs">{currentRun.id}</span>} />
+                            <LabeledValue label="Scope fingerprint" value={<span className="font-mono text-xs">{currentRun.scope_fingerprint}</span>} />
+                            <LabeledValue label="Started" value={formatTimestamp(currentRun.started_at)} />
+                            <LabeledValue label="Finished" value={formatTimestamp(currentRun.finished_at)} />
+                          </div>
+                        </details>
 
                         <div className="grid gap-4 lg:grid-cols-2">
                           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
@@ -1870,38 +1874,55 @@ function App() {
                           </div>
                         </div>
 
-                        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
-                          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
-                            <Sparkles className="h-4 w-4 text-red-300/80" />
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                        <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+                          <Sparkles className="h-4 w-4 text-red-300/80" />
                             Planner guidance
-                          </div>
+                        </div>
                           {plannerResult ? (
                             <div className="space-y-4">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Badge className="border-red-400/20 bg-red-400/10 text-red-200">{plannerResult.source}</Badge>
-                                <Badge className="border-white/10 bg-white/5 text-slate-200">{plannerResult.model}</Badge>
-                                <Badge className={stateTone(currentRun.state)}>{titleCase(currentRun.state)}</Badge>
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <LabeledValue label="What I found" value={plannerResult.summary} />
+                                <LabeledValue label="What I recommend next" value={plannerResult.next_allowed_step} />
                               </div>
                               <div className="grid gap-4 md:grid-cols-2">
-                                <LabeledValue label="Next safe step" value={plannerResult.next_allowed_step} />
-                                <LabeledValue label="Recommended action" value={plannerResult.recommended_action_id ?? "None"} />
+                                <LabeledValue label="Approval required" value={plannerResult.approval_required ? "Yes" : "No"} />
+                                <LabeledValue label="Why this matters" value={plannerResult.rationale} />
                               </div>
-                              <div className="grid gap-4 md:grid-cols-2">
-                                <LabeledValue
-                                  label="Likely concerns"
-                                  value={plannerResult.likely_areas_of_concern.length > 0 ? plannerResult.likely_areas_of_concern.join(" / ") : "None"}
-                                />
-                                <LabeledValue
-                                  label="Evidence refs"
-                                  value={plannerResult.evidence_references.length > 0 ? plannerResult.evidence_references.join(" / ") : "None"}
-                                />
-                              </div>
-                              <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-4">
-                                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                                  Rationale
+                              <details className="rounded-3xl border border-white/10 bg-slate-950/70 p-4">
+                                <summary className="cursor-pointer list-none text-sm font-semibold text-white">
+                                  Advanced
+                                </summary>
+                                <div className="mt-4 grid gap-4">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Badge className="border-red-400/20 bg-red-400/10 text-red-200">{plannerResult.source}</Badge>
+                                    <Badge className="border-white/10 bg-white/5 text-slate-200">{plannerResult.model}</Badge>
+                                    <Badge className={stateTone(currentRun.state)}>{titleCase(currentRun.state)}</Badge>
+                                  </div>
+                                  <div className="grid gap-4 md:grid-cols-2">
+                                    <LabeledValue label="Recommended action" value={plannerResult.recommended_action_id ?? "None"} />
+                                    <LabeledValue
+                                      label="Likely concerns"
+                                      value={plannerResult.likely_areas_of_concern.length > 0 ? plannerResult.likely_areas_of_concern.join(" / ") : "None"}
+                                    />
+                                  </div>
+                                  <div className="grid gap-4 md:grid-cols-2">
+                                    <LabeledValue
+                                      label="Evidence refs"
+                                      value={plannerResult.evidence_references.length > 0 ? plannerResult.evidence_references.join(" / ") : "None"}
+                                    />
+                                    <LabeledValue label="Confidence" value={plannerResult.confidence} />
+                                  </div>
+                                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                                    <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                                      Raw response
+                                    </div>
+                                    <pre className="overflow-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-300">
+                                      {JSON.stringify(plannerResult.raw, null, 2)}
+                                    </pre>
+                                  </div>
                                 </div>
-                                <p className="text-sm leading-7 text-slate-300">{plannerResult.rationale}</p>
-                              </div>
+                              </details>
                             </div>
                           ) : (
                             <div className="space-y-4">
@@ -1931,9 +1952,14 @@ function App() {
                           <div className="grid gap-4">
                             <LabeledValue label="Report" value={currentRun.report_path ?? "Pending"} />
                             <LabeledValue label="Manual notes" value={currentRun.manual_notes ?? "None"} />
-                            <LabeledValue label="Plan ID" value={currentRun.plan_id ?? "N/A"} />
                             <LabeledValue label="State" value={titleCase(currentRun.state)} />
                           </div>
+                          <details className="mt-4 rounded-3xl border border-white/10 bg-slate-950/70 p-4">
+                            <summary className="cursor-pointer list-none text-sm font-semibold text-white">Advanced</summary>
+                            <div className="mt-4">
+                              <LabeledValue label="Plan ID" value={currentRun.plan_id ?? "N/A"} />
+                            </div>
+                          </details>
                         </div>
                       </div>
                     </div>
@@ -2039,11 +2065,16 @@ function App() {
                     <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
                       <div className="space-y-4">
                         <div className="grid gap-4 md:grid-cols-2">
-                          <LabeledValue label="Run ID" value={<span className="font-mono text-xs">{currentRun.id}</span>} />
                           <LabeledValue label="Generated" value={formatTimestamp(currentRun.finished_at)} />
                           <LabeledValue label="Report path" value={currentRun.report_path ?? "Pending"} />
                           <LabeledValue label="State" value={titleCase(currentRun.state)} />
                         </div>
+                        <details className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                          <summary className="cursor-pointer list-none text-sm font-semibold text-white">Advanced</summary>
+                          <div className="mt-4">
+                            <LabeledValue label="Run ID" value={<span className="font-mono text-xs">{currentRun.id}</span>} />
+                          </div>
+                        </details>
                         <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-5">
                           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
                             <FileText className="h-4 w-4 text-red-300/80" />
@@ -2092,14 +2123,21 @@ function App() {
               ) : null}
               {section === "planner" ? (
                 <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-                  <Card eyebrow="LLM planner" title="Ollama-backed suggestion service">
+                  <Card eyebrow="Settings" title="Model and reset">
                     <div className="space-y-5">
+                      {modelUnavailable ? (
+                        <div className="rounded-3xl border border-amber-400/20 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">
+                          <div className="font-semibold text-white">Saved model unavailable</div>
+                          <div className="mt-1">
+                            {selectedModelName} is not ready right now.
+                            {suggestedModel ? ` Try ${suggestedModel}.` : " Pick another available model in Settings."}
+                          </div>
+                        </div>
+                      ) : null}
                       <label className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200">
                         <span>
-                          <span className="block font-semibold text-white">Backend Default</span>
-                          <span className="block text-xs text-slate-500">
-                            Use the stored model from the backend unless you need a temporary override.
-                          </span>
+                          <span className="block font-semibold text-white">Use saved model</span>
+                          <span className="block text-xs text-slate-500">Use the stored model unless you want a temporary override.</span>
                         </span>
                         <input
                           type="checkbox"
@@ -2109,10 +2147,7 @@ function App() {
                         />
                       </label>
                       <div className="space-y-2">
-                        <Label
-                          text="Model override"
-                          hint={modelSettings ? `Saved model: ${modelSettings.selected_model}` : "Leave blank to use the backend default"}
-                        />
+                        <Label text="Model" hint={modelSettings ? `Saved: ${modelSettings.selected_model}` : "Uses backend default"} />
                         <input
                           value={plannerModel}
                           onChange={(event) => setPlannerModel(event.target.value)}
@@ -2122,8 +2157,13 @@ function App() {
                         />
                       </div>
                       <div className="grid gap-4 md:grid-cols-2">
-                        <LabeledValue label="Scope" value={currentScope?.name ?? "No scope"} />
-                        <LabeledValue label="Run" value={currentRun?.id ?? "No run"} />
+                        <LabeledValue label="Current scope" value={currentScope?.name ?? "No scope"} />
+                        <LabeledValue label="Current run" value={currentRun ? titleCase(currentRun.state) : "No run"} />
+                        <LabeledValue label="Selected model" value={selectedModelName} />
+                        <LabeledValue
+                          label="Engine pulse"
+                          value={enginePulse?.status ? `${enginePulse.status}${enginePulse.selected_model_available === false ? " (attention)" : ""}` : "Unknown"}
+                        />
                       </div>
                       <button
                         type="button"
@@ -2131,74 +2171,121 @@ function App() {
                         className={cx(buttonBase, "w-full border-red-400/20 bg-red-500/10 text-red-100")}
                         disabled={busyAction === "save-model" || useBackendDefaultModel}
                       >
-                        {busyAction === "save-model" ? (
-                          <RefreshCw className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Database className="h-4 w-4" />
-                        )}
-                        Save model override
+                        {busyAction === "save-model" ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+                        Save model
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => void handlePlanner()}
-                        className={cx(buttonBase, "w-full border-red-400/20 bg-red-500/15 text-red-50")}
-                        disabled={busyAction === "planner"}
-                      >
-                        {busyAction === "planner" ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
-                        Generate suggestion
-                      </button>
+                      <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                        <div className="mb-3 text-sm font-semibold text-white">Scope reset</div>
+                        <div className="space-y-3">
+                          <div className="space-y-2">
+                            <Label text="Type RESET_SCOPE" hint="Clears the current scope link and active plan." />
+                            <input value={scopeResetConfirm} onChange={(event) => setScopeResetConfirm(event.target.value)} className={inputBase} placeholder="RESET_SCOPE" />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleResetCurrentScope()}
+                            className={cx(buttonBase, "w-full border-amber-400/20 bg-amber-500/10 text-amber-50")}
+                            disabled={busyAction === "reset-scope" || scopeResetConfirm.trim() !== "RESET_SCOPE"}
+                          >
+                            {busyAction === "reset-scope" ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Workflow className="h-4 w-4" />}
+                            Reset current scope
+                          </button>
+                          <div className="space-y-2">
+                            <Label text="Type DELETE_RUNS" hint="Deletes runs for the current scope only." />
+                            <input value={scopeRunsDeleteConfirm} onChange={(event) => setScopeRunsDeleteConfirm(event.target.value)} className={inputBase} placeholder="DELETE_RUNS" />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteCurrentScopeRuns()}
+                            className={cx(buttonBase, "w-full border-rose-400/20 bg-rose-500/10 text-rose-50")}
+                            disabled={busyAction === "delete-scope-runs" || scopeRunsDeleteConfirm.trim() !== "DELETE_RUNS"}
+                          >
+                            {busyAction === "delete-scope-runs" ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                            Delete current scope runs
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPurgeOpen(true)}
+                            className={cx(buttonBase, "w-full border-red-400/20 bg-red-500/10 text-red-50")}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Factory reset workspace
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </Card>
 
-                  <Card
-                    eyebrow="Planner output"
-                    title="Next allowed step"
-                    description="The planner is constrained to summarization and the next permitted step."
-                  >
+                  <Card eyebrow="Planner" title="Plain-English guidance" description="Short summary, recommended step, and approval state first.">
                     {plannerResult ? (
                       <div className="grid gap-5">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge className="border-red-400/20 bg-red-400/10 text-red-200">{plannerResult.source}</Badge>
-                          <Badge className="border-white/10 bg-white/5 text-slate-200">{plannerResult.model}</Badge>
-                          <Badge className={stateTone(currentRun?.state ?? dashboard.state)}>
-                            {titleCase(currentRun?.state ?? dashboard.state)}
-                          </Badge>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <LabeledValue label="What I found" value={plannerResult.summary} />
+                          <LabeledValue label="What I recommend next" value={plannerResult.next_allowed_step} />
                         </div>
-                        <div className="grid gap-4">
-                          <LabeledValue label="Summary" value={plannerResult.summary} />
-                          <LabeledValue label="Next step" value={plannerResult.next_allowed_step} />
-                          <LabeledValue label="Recommended action" value={plannerResult.recommended_action_id ?? "None"} />
-                          <LabeledValue label="Confidence" value={plannerResult.confidence} />
-                          <LabeledValue
-                            label="Likely concerns"
-                            value={plannerResult.likely_areas_of_concern.length > 0 ? plannerResult.likely_areas_of_concern.join(" / ") : "None"}
-                          />
-                          <LabeledValue
-                            label="Evidence refs"
-                            value={plannerResult.evidence_references.length > 0 ? plannerResult.evidence_references.join(" / ") : "None"}
-                          />
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <LabeledValue label="Approval required" value={plannerResult.approval_required ? "Yes" : "No"} />
+                          <LabeledValue label="Why this matters" value={plannerResult.rationale} />
                         </div>
-                        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-5">
-                          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                            Rationale
+                        <button
+                          type="button"
+                          onClick={() => void handlePlanner()}
+                          className={cx(buttonBase, "w-full border-red-400/20 bg-red-500/15 text-red-50")}
+                          disabled={busyAction === "planner"}
+                        >
+                          {busyAction === "planner" ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
+                          Refresh guidance
+                        </button>
+                        <details className="rounded-3xl border border-white/10 bg-slate-950/70 p-4">
+                          <summary className="cursor-pointer list-none text-sm font-semibold text-white">Advanced</summary>
+                          <div className="mt-4 grid gap-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge className="border-red-400/20 bg-red-400/10 text-red-200">{plannerResult.source}</Badge>
+                              <Badge className="border-white/10 bg-white/5 text-slate-200">{plannerResult.model}</Badge>
+                              <Badge className={stateTone(currentRun?.state ?? dashboard.state)}>
+                                {titleCase(currentRun?.state ?? dashboard.state)}
+                              </Badge>
+                            </div>
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <LabeledValue label="Recommended action" value={plannerResult.recommended_action_id ?? "None"} />
+                              <LabeledValue label="Confidence" value={plannerResult.confidence} />
+                            </div>
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <LabeledValue
+                                label="Likely concerns"
+                                value={plannerResult.likely_areas_of_concern.length > 0 ? plannerResult.likely_areas_of_concern.join(" / ") : "None"}
+                              />
+                              <LabeledValue
+                                label="Evidence refs"
+                                value={plannerResult.evidence_references.length > 0 ? plannerResult.evidence_references.join(" / ") : "None"}
+                              />
+                            </div>
+                            <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                              <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Raw response</div>
+                              <pre className="overflow-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-300">
+                                {JSON.stringify(plannerResult.raw, null, 2)}
+                              </pre>
+                            </div>
                           </div>
-                          <p className="text-sm leading-7 text-slate-300">{plannerResult.rationale}</p>
-                        </div>
-                        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-5">
-                          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                            Raw response
-                          </div>
-                          <pre className="overflow-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-300">
-                            {JSON.stringify(plannerResult.raw, null, 2)}
-                          </pre>
-                        </div>
+                        </details>
                       </div>
                     ) : (
-                      <EmptyState
-                        title="No suggestion yet"
-                        description="Ask the planner to summarize the latest run and propose the next allowed step."
-                        icon={Brain}
-                      />
+                      <div className="space-y-4">
+                        <EmptyState
+                          title="No guidance yet"
+                          description="Ask the planner to summarize the current run and suggest the next safe step."
+                          icon={Brain}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handlePlanner(false)}
+                          className={cx(buttonBase, "w-full border-red-400/20 bg-red-500/10 text-red-100")}
+                          disabled={busyAction === "planner"}
+                        >
+                          {busyAction === "planner" ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
+                          Generate guidance
+                        </button>
+                      </div>
                     )}
                   </Card>
                 </div>
@@ -2293,4 +2380,5 @@ function App() {
 }
 
 export default App;
+
 

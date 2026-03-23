@@ -580,6 +580,26 @@ class PengeticStore:
                 rows = conn.execute("SELECT id FROM runs ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall()
         return [run for row in rows if (run := self.get_run(row["id"])) is not None]
 
+    def list_run_ids_for_scope(self, scope_id: str) -> list[str]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT id FROM runs WHERE scope_id = ? ORDER BY created_at DESC", (scope_id,)).fetchall()
+        return [str(row["id"]) for row in rows]
+
+    def delete_runs_for_scope(self, scope_id: str) -> list[str]:
+        run_ids = self.list_run_ids_for_scope(scope_id)
+        if not run_ids:
+            return []
+        with self._connect() as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
+            for run_id in run_ids:
+                conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+        if self.current_run_id() in run_ids:
+            self.set_current_run(None)
+        if self.current_plan_id() and any(run_id for run_id in run_ids):
+            # Keep the current plan reference if it belongs to another scope; callers decide whether to clear it.
+            pass
+        return run_ids
+
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()

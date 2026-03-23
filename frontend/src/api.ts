@@ -12,9 +12,12 @@ import type {
   RunCreateRequest,
   RunResumeRequest,
   RunView,
+  ScopeActivationResponse,
   ScopeTemplateRequest,
   ScopeTemplateResponse,
   ScopeSummary,
+  ScopeResetResponse,
+  ScopeRunsDeleteResponse,
   ScopeUploadResponse,
   WorkspacePurgeRequest,
   WorkspacePurgeResponse,
@@ -76,11 +79,15 @@ export const api = {
   dashboard: () => getJson<DashboardView>("/api/dashboard"),
   scopes: () => getJson<ScopeSummary[]>("/api/scopes"),
   currentScope: () => getJson<ScopeSummary | null>("/api/scopes/current"),
+  activateScope: (scopeId: string) => postJson<ScopeActivationResponse>(`/api/scopes/${encodeURIComponent(scopeId)}/activate`, {}),
   currentPlan: () => getJson<PlanView | null>("/api/plans/current"),
   ollamaModel: () => getJson<OllamaModelView>("/api/llm/model"),
   setOllamaModel: (model: string) => postJson<OllamaModelView>("/api/llm/model", { model }),
   enginePulse: () => getJson<EnginePulseView>("/api/engine/pulse"),
-  runs: (limit = 12) => getJson<RunView[]>(`/api/runs?limit=${encodeURIComponent(String(limit))}`),
+  runs: (limit = 12, scopeId?: string | null) =>
+    getJson<RunView[]>(
+      `/api/runs?limit=${encodeURIComponent(String(limit))}${scopeId ? `&scope_id=${encodeURIComponent(scopeId)}` : ""}`,
+    ),
   run: (runId: string) => getJson<RunView>(`/api/runs/${encodeURIComponent(runId)}`),
   runToolResults: (runId: string, toolId?: string) =>
     getJson<ToolResultView[]>(
@@ -107,5 +114,9 @@ export const api = {
   approveAction: (body: ApprovalCreateRequest) => postJson<ApprovalView>("/api/approvals", body),
   planner: (body: LLMPlannerRequest) => postJson<LLMPlannerResponse>("/api/llm/planner", body),
   generateScopeTemplate: (body: ScopeTemplateRequest) => postJson<ScopeTemplateResponse>("/api/scopes/templates/generate", body),
+  resetCurrentScope: (confirmation: string) =>
+    postJson<ScopeResetResponse>("/api/scopes/current/reset", { confirmation }),
+  deleteCurrentScopeRuns: (confirmation: string) =>
+    postJson<ScopeRunsDeleteResponse>("/api/scopes/current/runs/delete", { confirmation }),
   purgeWorkspace: (body: WorkspacePurgeRequest) => postJson<WorkspacePurgeResponse>("/api/system/purge-all", body),
 };

@@ -252,6 +252,13 @@ class ScopeUploadResponse(BaseModel):
     validation_message: str
 
 
+class ScopeActivationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    scope: ScopeSummary
+    status: str = "activated"
+
+
 class RunCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -293,6 +300,7 @@ class LLMPlannerResponse(BaseModel):
     evidence_references: list[str] = Field(default_factory=list)
     next_allowed_step: str
     recommended_action_id: str | None = None
+    approval_required: bool = False
     rationale: str
     confidence: str = "medium"
     raw: dict[str, Any] = Field(default_factory=dict)
@@ -363,6 +371,34 @@ class WorkspacePurgeResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     status: str
+    removed_paths: list[str] = Field(default_factory=list)
+
+
+class ScopeResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    confirmation: str
+
+
+class ScopeResetResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    status: str
+    scope_id: str | None = None
+
+
+class ScopeRunsDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    confirmation: str
+
+
+class ScopeRunsDeleteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    status: str
+    scope_id: str | None = None
+    deleted_run_ids: list[str] = Field(default_factory=list)
     removed_paths: list[str] = Field(default_factory=list)
 
 

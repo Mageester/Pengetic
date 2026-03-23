@@ -61,6 +61,48 @@ export interface RunActionView extends PlanActionView {
   updated_at: string;
 }
 
+export interface ToolArtifactView {
+  kind: string;
+  path: string;
+  description: string | null;
+  evidence_id: string | null;
+  persisted: boolean;
+}
+
+export interface FindingCandidateView {
+  title: string;
+  severity: string;
+  confidence: string;
+  affected_asset: string;
+  evidence: string[];
+  why_it_matters: string;
+  safe_verification_status: string;
+  remediation: string;
+  source_tool: string | null;
+  source_action_id: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface ToolResultView {
+  id: number;
+  run_id: string;
+  scope_id: string;
+  action_id: string | null;
+  tool_id: string;
+  target: string;
+  timestamp: string;
+  status: string;
+  raw_output: Record<string, unknown>;
+  parsed_output: Record<string, unknown>;
+  artifacts: ToolArtifactView[];
+  findings_candidates: FindingCandidateView[];
+  next_safe_checks: string[];
+  metadata: Record<string, unknown>;
+  summary: string | null;
+  success: boolean;
+  created_at: string;
+}
+
 export interface FindingView {
   id: number;
   run_id: string;
@@ -135,8 +177,24 @@ export interface RunView {
   actions: RunActionView[];
   findings: FindingView[];
   artifacts: ArtifactView[];
+  tool_results: ToolResultView[];
+  evidence_correlation: EvidenceCorrelationView | null;
   approvals: ApprovalView[];
   events: EventView[];
+}
+
+export interface EvidenceCorrelationView {
+  run_id: string;
+  tool_ids: string[];
+  service_inventory: Record<string, unknown>[];
+  route_inventory: Record<string, unknown>[];
+  tls_posture: Record<string, unknown>[];
+  header_posture: Record<string, unknown>[];
+  http_probe: Record<string, unknown>[];
+  dns_visibility: Record<string, unknown>[];
+  evidence_refs: string[];
+  observations: string[];
+  by_tool: Record<string, Record<string, unknown>[]>;
 }
 
 export interface DashboardView {
@@ -183,11 +241,63 @@ export interface LLMPlannerResponse {
   model: string;
   source: string;
   summary: string;
+  likely_areas_of_concern: string[];
+  evidence_references: string[];
   next_allowed_step: string;
   recommended_action_id: string | null;
   rationale: string;
   confidence: string;
   raw: Record<string, unknown>;
+}
+
+export interface OllamaModelView {
+  selected_model: string;
+  backend_default_model: string;
+  source: string;
+  updated_at: string;
+}
+
+export interface EnginePulseView {
+  status: string;
+  service: string;
+  selected_model: string;
+  available_models: string[];
+  selected_model_available: boolean;
+  checked_at: string;
+  error: string | null;
+  raw: Record<string, unknown>;
+}
+
+export interface ScopeTemplateRequest {
+  template_id: string;
+  scope_name: string;
+  target_url: string;
+  allowed_subdomains: string[];
+  login_areas_allowed: string[];
+  apis_allowed: string[];
+  tool_allowlist: string[];
+  authorization_note: string;
+  contacts: string[];
+  notes?: string | null;
+  profile: string;
+  activate: boolean;
+}
+
+export interface ScopeTemplateResponse {
+  template_id: string;
+  generated_yaml: string;
+  scope: ScopeSummary;
+  plan: PlanView;
+  validation_message: string;
+}
+
+export interface WorkspacePurgeRequest {
+  confirmation: string;
+}
+
+export interface WorkspacePurgeResponse {
+  status: string;
+  removed_paths: string[];
 }
 
 export interface ReportResponse {

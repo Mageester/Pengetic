@@ -1,16 +1,24 @@
 import type {
   ApprovalCreateRequest,
   ApprovalView,
+  EvidenceCorrelationView,
+  EnginePulseView,
   DashboardView,
   LLMPlannerRequest,
   LLMPlannerResponse,
+  OllamaModelView,
   PlanView,
   ReportResponse,
   RunCreateRequest,
   RunResumeRequest,
   RunView,
+  ScopeTemplateRequest,
+  ScopeTemplateResponse,
   ScopeSummary,
   ScopeUploadResponse,
+  WorkspacePurgeRequest,
+  WorkspacePurgeResponse,
+  ToolResultView,
 } from "./types";
 
 const rawBase = import.meta.env.VITE_PENGETIC_API_BASE as string | undefined;
@@ -69,8 +77,21 @@ export const api = {
   scopes: () => getJson<ScopeSummary[]>("/api/scopes"),
   currentScope: () => getJson<ScopeSummary | null>("/api/scopes/current"),
   currentPlan: () => getJson<PlanView | null>("/api/plans/current"),
+  ollamaModel: () => getJson<OllamaModelView>("/api/llm/model"),
+  setOllamaModel: (model: string) => postJson<OllamaModelView>("/api/llm/model", { model }),
+  enginePulse: () => getJson<EnginePulseView>("/api/engine/pulse"),
   runs: (limit = 12) => getJson<RunView[]>(`/api/runs?limit=${encodeURIComponent(String(limit))}`),
   run: (runId: string) => getJson<RunView>(`/api/runs/${encodeURIComponent(runId)}`),
+  runToolResults: (runId: string, toolId?: string) =>
+    getJson<ToolResultView[]>(
+      `/api/runs/${encodeURIComponent(runId)}/tool-results${toolId ? `?tool_id=${encodeURIComponent(toolId)}` : ""}`,
+    ),
+  runEvidenceCorrelation: (runId: string) => getJson<EvidenceCorrelationView>(`/api/runs/${encodeURIComponent(runId)}/evidence-correlation`),
+  runServiceInventory: (runId: string) => getJson<Record<string, unknown>[]>(`/api/runs/${encodeURIComponent(runId)}/service-inventory`),
+  runRouteInventory: (runId: string) => getJson<Record<string, unknown>[]>(`/api/runs/${encodeURIComponent(runId)}/route-inventory`),
+  runTlsSummary: (runId: string) => getJson<Record<string, unknown>[]>(`/api/runs/${encodeURIComponent(runId)}/tls-summary`),
+  runHeaderSummary: (runId: string) => getJson<Record<string, unknown>[]>(`/api/runs/${encodeURIComponent(runId)}/header-summary`),
+  runPlannerEvidenceContext: (runId: string) => getJson<Record<string, unknown>>(`/api/runs/${encodeURIComponent(runId)}/planner-evidence-context`),
   report: (runId: string) => getJson<ReportResponse>(`/api/reports/${encodeURIComponent(runId)}`),
   reportUrl: (runId: string) => apiUrl(`/api/reports/${encodeURIComponent(runId)}/export`),
   uploadScope: (file: File, profile: string, activate = true) => {
@@ -85,4 +106,6 @@ export const api = {
     postJson<RunView>(`/api/runs/${encodeURIComponent(runId)}/resume`, body),
   approveAction: (body: ApprovalCreateRequest) => postJson<ApprovalView>("/api/approvals", body),
   planner: (body: LLMPlannerRequest) => postJson<LLMPlannerResponse>("/api/llm/planner", body),
+  generateScopeTemplate: (body: ScopeTemplateRequest) => postJson<ScopeTemplateResponse>("/api/scopes/templates/generate", body),
+  purgeWorkspace: (body: WorkspacePurgeRequest) => postJson<WorkspacePurgeResponse>("/api/system/purge-all", body),
 };

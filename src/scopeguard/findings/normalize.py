@@ -12,6 +12,7 @@ def normalize_finding(raw: Finding | Mapping[str, Any], *, source_action_id: str
         finding = raw
     else:
         payload = dict(raw)
+        payload.pop("metadata", None)
         if source_action_id and "source_action_id" not in payload:
             payload["source_action_id"] = source_action_id
         finding = Finding.model_validate(redact_sensitive_value(payload))
@@ -22,4 +23,3 @@ def normalize_findings(
     raw_findings: list[Finding | Mapping[str, Any]], *, source_action_id: str | None = None
 ) -> list[Finding]:
     return [normalize_finding(item, source_action_id=source_action_id) for item in raw_findings]
-

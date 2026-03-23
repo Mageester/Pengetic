@@ -79,13 +79,22 @@ class AssessmentPlanner:
             )
 
         add_action(
+            action_id="passive-http-probe",
+            title="Probe HTTP surface",
+            objective="Capture response metadata, redirects, cookies, and title data from the base URL.",
+            target=base_target,
+            tool_id="http-probe",
+            classification=RiskLevel.passive_safe,
+            expected_evidence=["HTTP status", "Redirect chain", "Headers", "Cookie flags", "Title"],
+        )
+        add_action(
             action_id="passive-header-review",
             title="Review security headers",
             objective="Inspect the base response headers for common hardening gaps and cookie flags.",
             target=base_target,
             tool_id="header-review",
             classification=RiskLevel.passive_safe,
-            expected_evidence=["Header snapshot", "Cookie flag summary", "Security findings"],
+            expected_evidence=["Structured header analysis", "Cookie flag summary", "CSP/HSTS posture"],
         )
         add_action(
             action_id="passive-tls-review",
@@ -94,7 +103,16 @@ class AssessmentPlanner:
             target=base_target,
             tool_id="tls-review",
             classification=RiskLevel.passive_safe,
-            expected_evidence=["Negotiated protocol", "Cipher", "Certificate metadata"],
+            expected_evidence=["TLS posture", "Certificate metadata", "Protocol/cipher hints"],
+        )
+        add_action(
+            action_id="passive-dns-visibility",
+            title="Collect DNS visibility",
+            objective="Gather safe DNS records to support infrastructure correlation.",
+            target=base_target,
+            tool_id="dns-visibility",
+            classification=RiskLevel.passive_safe,
+            expected_evidence=["A/AAAA/CNAME/MX/TXT/NS records", "Reverse lookup hints"],
         )
         add_action(
             action_id="passive-robots-fetch",
@@ -103,7 +121,7 @@ class AssessmentPlanner:
             target=f"{base_target.rstrip('/')}/robots.txt",
             tool_id="robots-fetch",
             classification=RiskLevel.passive_safe,
-            expected_evidence=["Robots.txt body", "Public path hints"],
+            expected_evidence=["robots.txt body", "Disallow entries", "Public path hints"],
         )
         add_action(
             action_id="passive-sitemap-fetch",
@@ -112,7 +130,7 @@ class AssessmentPlanner:
             target=f"{base_target.rstrip('/')}/sitemap.xml",
             tool_id="sitemap-fetch",
             classification=RiskLevel.passive_safe,
-            expected_evidence=["Sitemap body", "Public route inventory"],
+            expected_evidence=["sitemap.xml body", "URL inventory"],
         )
         add_action(
             action_id="passive-route-inventory",
@@ -121,7 +139,7 @@ class AssessmentPlanner:
             target=base_target,
             tool_id="route-inventory",
             classification=RiskLevel.passive_safe,
-            expected_evidence=["Normalized public routes", "Sensitive route markers"],
+            expected_evidence=["Normalized public routes", "Sensitive route markers", "Base response snapshot"],
         )
         add_action(
             action_id="passive-tech-fingerprint",
@@ -130,7 +148,7 @@ class AssessmentPlanner:
             target=base_target,
             tool_id="tech-fingerprint",
             classification=RiskLevel.passive_safe,
-            expected_evidence=["Header fingerprints", "Meta generator hints", "Framework markers"],
+            expected_evidence=["Header fingerprints", "Meta generator hints", "Framework markers", "Parsed tech signals"],
         )
         add_action(
             action_id="passive-manual-review",
@@ -141,6 +159,19 @@ class AssessmentPlanner:
             classification=RiskLevel.passive_safe,
             expected_evidence=["Manual review artifact"],
         )
+
+        if "nmap-service-discovery" in scope.tool_allowlist:
+            add_action(
+                action_id="active-nmap-service-discovery",
+                title="Nmap service discovery",
+                objective="Run an approval-gated service scan to inventory open ports, service signatures, and version banners.",
+                target=base_target,
+                tool_id="nmap-service-discovery",
+                classification=RiskLevel.low_risk_active,
+                expected_evidence=["Nmap XML output", "Nmap text output", "Parsed open service inventory"],
+                approval_required=True,
+                notes="Approval-gated service discovery; safe output capture only.",
+            )
 
         if scope.login_areas_allowed:
             login_targets = ", ".join(scope.login_areas_allowed)
@@ -188,4 +219,3 @@ class AssessmentPlanner:
             profile=profile.value,
             actions=actions,
         )
-

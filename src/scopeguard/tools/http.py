@@ -14,6 +14,7 @@ class HttpFetchResult:
     requested_url: str
     final_url: str
     status_code: int | None
+    redirects: list[dict[str, Any]]
     headers: dict[str, str]
     set_cookie_headers: list[str]
     body: str
@@ -24,6 +25,7 @@ class HttpFetchResult:
             "requested_url": self.requested_url,
             "final_url": self.final_url,
             "status_code": self.status_code,
+            "redirects": self.redirects,
             "headers": self.headers,
             "set_cookie_headers": self.set_cookie_headers,
             "body": self.body,
@@ -47,10 +49,19 @@ def safe_fetch(
             headers={"User-Agent": context.user_agent},
         )
         body = response.text[: context.max_body_chars]
+        redirects = [
+            {
+                "status_code": item.status_code,
+                "url": str(item.url),
+                "headers": {key.lower(): value for key, value in item.headers.items()},
+            }
+            for item in response.history
+        ]
         result = HttpFetchResult(
             requested_url=url,
             final_url=str(response.url),
             status_code=response.status_code,
+            redirects=redirects,
             headers={key.lower(): value for key, value in response.headers.items()},
             set_cookie_headers=list(response.headers.get_list("set-cookie")),
             body=body,
@@ -60,6 +71,7 @@ def safe_fetch(
             requested_url=url,
             final_url=url,
             status_code=None,
+            redirects=[],
             headers={},
             set_cookie_headers=[],
             body="",

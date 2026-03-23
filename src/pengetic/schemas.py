@@ -108,6 +108,70 @@ class ArtifactView(BaseModel):
     created_at: str
 
 
+class ToolArtifactView(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    kind: str
+    path: str
+    description: str | None = None
+    evidence_id: str | None = None
+    persisted: bool = True
+
+
+class FindingCandidateView(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    title: str
+    severity: str
+    confidence: str
+    affected_asset: str
+    evidence: list[str] = Field(default_factory=list)
+    why_it_matters: str = ""
+    safe_verification_status: str = ""
+    remediation: str = ""
+    source_tool: str | None = None
+    source_action_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolResultView(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    id: int
+    run_id: str
+    scope_id: str
+    action_id: str | None = None
+    tool_id: str
+    target: str
+    timestamp: str
+    status: str
+    raw_output: dict[str, Any] = Field(default_factory=dict)
+    parsed_output: dict[str, Any] = Field(default_factory=dict)
+    artifacts: list[ToolArtifactView] = Field(default_factory=list)
+    findings_candidates: list[FindingCandidateView] = Field(default_factory=list)
+    next_safe_checks: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    summary: str | None = None
+    success: bool = False
+    created_at: str
+
+
+class EvidenceCorrelationView(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    run_id: str
+    tool_ids: list[str] = Field(default_factory=list)
+    service_inventory: list[dict[str, Any]] = Field(default_factory=list)
+    route_inventory: list[dict[str, Any]] = Field(default_factory=list)
+    tls_posture: list[dict[str, Any]] = Field(default_factory=list)
+    header_posture: list[dict[str, Any]] = Field(default_factory=list)
+    http_probe: list[dict[str, Any]] = Field(default_factory=list)
+    dns_visibility: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(default_factory=list)
+    observations: list[str] = Field(default_factory=list)
+    by_tool: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+
+
 class ApprovalView(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -161,6 +225,8 @@ class RunView(BaseModel):
     actions: list[RunActionView] = Field(default_factory=list)
     findings: list[FindingView] = Field(default_factory=list)
     artifacts: list[ArtifactView] = Field(default_factory=list)
+    tool_results: list[ToolResultView] = Field(default_factory=list)
+    evidence_correlation: EvidenceCorrelationView | None = None
     approvals: list[ApprovalView] = Field(default_factory=list)
     events: list[EventView] = Field(default_factory=list)
 
@@ -223,11 +289,81 @@ class LLMPlannerResponse(BaseModel):
     model: str
     source: str
     summary: str
+    likely_areas_of_concern: list[str] = Field(default_factory=list)
+    evidence_references: list[str] = Field(default_factory=list)
     next_allowed_step: str
     recommended_action_id: str | None = None
     rationale: str
     confidence: str = "medium"
     raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class OllamaModelView(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    selected_model: str
+    backend_default_model: str
+    source: str
+    updated_at: str
+
+
+class OllamaModelUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    model: str
+
+
+class EnginePulseView(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    status: str
+    service: str = "ollama"
+    selected_model: str
+    available_models: list[str] = Field(default_factory=list)
+    selected_model_available: bool = False
+    checked_at: str
+    error: str | None = None
+    raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class ScopeTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    template_id: str
+    scope_name: str
+    target_url: str
+    allowed_subdomains: list[str] = Field(default_factory=list)
+    login_areas_allowed: list[str] = Field(default_factory=list)
+    apis_allowed: list[str] = Field(default_factory=list)
+    tool_allowlist: list[str] = Field(default_factory=list)
+    authorization_note: str = "Authorized by the site owner for defensive assessment only."
+    contacts: list[str] = Field(default_factory=list)
+    notes: str | None = None
+    profile: str = "passive-only"
+    activate: bool = True
+
+
+class ScopeTemplateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    template_id: str
+    generated_yaml: str
+    scope: ScopeSummary
+    plan: PlanView
+    validation_message: str
+
+
+class WorkspacePurgeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    confirmation: str
+
+
+class WorkspacePurgeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    status: str
+    removed_paths: list[str] = Field(default_factory=list)
 
 
 class OrchestratorRunRequest(BaseModel):
@@ -254,6 +390,8 @@ class OrchestratorDecisionView(BaseModel):
     status: str
     stop_reason: str
     summary: str
+    likely_areas_of_concern: list[str] = Field(default_factory=list)
+    evidence_references: list[str] = Field(default_factory=list)
     next_allowed_step: str
     recommended_action_id: str | None = None
     rationale: str

@@ -14,6 +14,7 @@ import {
   Sparkles,
   TerminalSquare,
   Upload,
+  Trash2,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
@@ -22,13 +23,17 @@ import { api, apiUrl } from "./api";
 import type {
   ApprovalCreateRequest,
   DashboardView,
+  EnginePulseView,
   LLMPlannerResponse,
+  ToolResultView,
   PlanActionView,
   PlanView,
   ReportResponse,
   RunActionView,
   RunView,
+  OllamaModelView,
   ScopeUploadResponse,
+  ScopeTemplateResponse,
 } from "./types";
 import {
   cx,
@@ -53,25 +58,53 @@ const sections: Array<{
   description: string;
   icon: LucideIcon;
 }> = [
-  { id: "overview", label: "Overview", description: "Workspace posture", icon: LayoutDashboard },
-  { id: "scope", label: "Scope", description: "Upload and validate", icon: Upload },
-  { id: "plan", label: "Plan", description: "Risk-labelled actions", icon: ListChecks },
-  { id: "run", label: "Run", description: "Logs, evidence, findings", icon: PlayCircle },
-  { id: "approvals", label: "Approvals", description: "Non-passive queue", icon: Workflow },
-  { id: "reports", label: "Reports", description: "Markdown export", icon: FileDown },
+  { id: "overview", label: "Workflow", description: "Five-stage lifecycle", icon: LayoutDashboard },
+  { id: "scope", label: "Scope Definition", description: "Upload or generate", icon: Upload },
+  { id: "plan", label: "Automated Discovery", description: "Risk-labelled actions", icon: ListChecks },
+  { id: "run", label: "State Analysis", description: "Logs, evidence, findings", icon: PlayCircle },
+  { id: "approvals", label: "Evidence Aggregation", description: "Gated queue and artifacts", icon: Workflow },
+  { id: "reports", label: "Reporting", description: "Markdown export", icon: FileDown },
   { id: "planner", label: "Planner", description: "Local Ollama summary", icon: Brain },
+];
+
+const workflowStages = [
+  {
+    id: "scope",
+    title: "Scope Definition",
+    description: "Validate an uploaded scope or generate one from a template.",
+  },
+  {
+    id: "plan",
+    title: "Automated Discovery",
+    description: "Review the risk-labelled plan and approve any gated discovery.",
+  },
+  {
+    id: "run",
+    title: "State Analysis",
+    description: "Inspect the live run, event stream, planner output, and service analysis.",
+  },
+  {
+    id: "approvals",
+    title: "Evidence Aggregation",
+    description: "Review findings, artifacts, and the queue of explicit approvals.",
+  },
+  {
+    id: "reports",
+    title: "Reporting",
+    description: "Export the persisted Markdown report from the final state.",
+  },
 ];
 
 const liveStates = new Set(["running", "awaiting_approval"]);
 const panelBase = "rounded-[28px] border border-white/10 bg-slate-950/75 shadow-panel backdrop-blur-xl";
 const buttonBase =
-  "inline-flex items-center justify-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-100 transition hover:border-cyan-400/30 hover:bg-white/10 hover:text-white";
+  "inline-flex items-center justify-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-100 transition hover:border-red-500/30 hover:bg-white/10 hover:text-white";
 const inputBase =
-  "w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-cyan-400/40 focus:ring-2 focus:ring-cyan-400/20";
+  "w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-red-500/40 focus:ring-2 focus:ring-red-500/20";
 const textareaBase =
-  "w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-cyan-400/40 focus:ring-2 focus:ring-cyan-400/20";
+  "w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none transition focus:border-red-500/40 focus:ring-2 focus:ring-red-500/20";
 const selectBase =
-  "w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-cyan-400/40 focus:ring-2 focus:ring-cyan-400/20";
+  "w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-red-500/40 focus:ring-2 focus:ring-red-500/20";
 const logoPath = "/pengetic-logo.png";
 
 function normalizeError(error: unknown): string {
@@ -80,6 +113,13 @@ function normalizeError(error: unknown): string {
 
 function formatCount(value: number | undefined): string {
   return typeof value === "number" ? value.toString() : "0";
+}
+
+function splitEntries(value: string): string[] {
+  return value
+    .split(/[\n,]/g)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function planActionSummary(actions: PlanActionView[]): string {
@@ -105,7 +145,7 @@ function Card({
       <div className="flex flex-col gap-4 border-b border-white/5 px-6 py-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           {eyebrow ? (
-            <p className="text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-cyan-300/80">
+            <p className="text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-red-300/80">
               {eyebrow}
             </p>
           ) : null}
@@ -172,7 +212,7 @@ function EmptyState({
 }) {
   return (
     <div className="flex min-h-[180px] flex-col items-center justify-center rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-8 text-center">
-      {Icon ? <Icon className="mb-4 h-7 w-7 text-cyan-300/80" /> : null}
+      {Icon ? <Icon className="mb-4 h-7 w-7 text-red-300/80" /> : null}
       <h3 className="text-lg font-semibold text-white">{title}</h3>
       <p className="mt-2 max-w-lg text-sm leading-6 text-slate-400">{description}</p>
     </div>
@@ -196,11 +236,11 @@ function SectionButton({
       className={cx(
         "group flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left transition",
         active
-          ? "border-cyan-400/30 bg-cyan-400/10 text-white"
-          : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-cyan-400/20 hover:bg-white/[0.06] hover:text-white",
+          ? "border-red-400/30 bg-red-400/10 text-white"
+          : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-red-400/20 hover:bg-white/[0.06] hover:text-white",
       )}
     >
-      <Icon className={cx("mt-0.5 h-5 w-5 shrink-0", active ? "text-cyan-300" : "text-slate-400")} />
+      <Icon className={cx("mt-0.5 h-5 w-5 shrink-0", active ? "text-red-300" : "text-slate-400")} />
       <div className="min-w-0">
         <div className="text-sm font-semibold">{item.label}</div>
         <div className="mt-0.5 text-xs leading-5 text-slate-500 group-hover:text-slate-400">{item.description}</div>
@@ -222,13 +262,198 @@ function BrandLogo({ className, alt = "Pengetic logo" }: { className?: string; a
   return <img src={logoPath} alt={alt} className={cx("block h-auto w-full object-contain", className)} />;
 }
 
+type EvidenceTab = "parsed" | "raw";
+
+function formatJsonValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function countNonEmpty(items: Array<unknown> | undefined | null): number {
+  return Array.isArray(items) ? items.filter(Boolean).length : 0;
+}
+
+function ToolResultSummary({
+  result,
+  selected,
+  onSelect,
+}: {
+  result: ToolResultView;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cx(
+        "w-full rounded-2xl border p-4 text-left transition",
+        selected
+          ? "border-red-400/30 bg-red-400/10"
+          : "border-white/10 bg-slate-950/70 hover:border-red-400/20 hover:bg-white/[0.04]",
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge className={statusTone(result.status)}>{statusLabel(result.status)}</Badge>
+        <Badge className="border-white/10 bg-white/5 text-slate-200">{result.tool_id}</Badge>
+        <span className="text-xs text-slate-500">{formatShortTimestamp(result.timestamp)}</span>
+      </div>
+      <div className="mt-3 text-sm font-semibold text-white">{result.summary || result.tool_id}</div>
+      <div className="mt-2 text-xs text-slate-500">{summarizeTarget(result.target)}</div>
+      <div className="mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+        <span>{result.artifacts.length} artifacts</span>
+        <span>{result.findings_candidates.length} findings</span>
+        <span>{result.next_safe_checks.length} next checks</span>
+      </div>
+    </button>
+  );
+}
+
+function EvidenceDetail({
+  result,
+  activeTab,
+  onTabChange,
+}: {
+  result: ToolResultView | null;
+  activeTab: EvidenceTab;
+  onTabChange: (tab: EvidenceTab) => void;
+}) {
+  if (!result) {
+    return (
+      <EmptyState
+        title="No tool evidence selected"
+        description="Pick a normalized tool result to inspect the raw output, parsed fields, artifacts, and follow-up ideas."
+        icon={FileText}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge className="border-red-400/20 bg-red-500/10 text-red-100">{result.tool_id}</Badge>
+        <Badge className={statusTone(result.status)}>{statusLabel(result.status)}</Badge>
+        <Badge className="border-white/10 bg-white/5 text-slate-200">{result.artifacts.length} artifacts</Badge>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <LabeledValue label="Target" value={summarizeTarget(result.target)} />
+        <LabeledValue label="Timestamp" value={formatTimestamp(result.timestamp)} />
+        <LabeledValue label="Run" value={<span className="font-mono text-xs">{result.run_id}</span>} />
+        <LabeledValue label="Scope" value={<span className="font-mono text-xs">{result.scope_id.slice(0, 12) || "-"}</span>} />
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => onTabChange("parsed")}
+          className={cx(
+            buttonBase,
+            activeTab === "parsed" ? "border-red-400/25 bg-red-400/10 text-red-50" : "text-slate-300",
+          )}
+        >
+          Parsed
+        </button>
+        <button
+          type="button"
+          onClick={() => onTabChange("raw")}
+          className={cx(
+            buttonBase,
+            activeTab === "raw" ? "border-red-400/25 bg-red-400/10 text-red-50" : "text-slate-300",
+          )}
+        >
+          Raw
+        </button>
+      </div>
+      <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-4">
+        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
+          <TerminalSquare className="h-4 w-4 text-red-300/80" />
+          {activeTab === "raw" ? "Raw output" : "Parsed output"}
+        </div>
+        <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-300">
+          {formatJsonValue(activeTab === "raw" ? result.raw_output : result.parsed_output)}
+        </pre>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="mb-3 text-sm font-semibold text-white">Findings candidates</div>
+          <div className="space-y-3">
+            {result.findings_candidates.length > 0 ? (
+              result.findings_candidates.map((candidate) => (
+                <div key={`${candidate.title}-${candidate.source_action_id ?? result.id}`} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className={severityTone(candidate.severity)}>{titleCase(candidate.severity)}</Badge>
+                    <span className="font-semibold text-white">{candidate.title}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{candidate.why_it_matters}</p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-500">
+                    {candidate.safe_verification_status || "Preliminary"}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <EmptyState title="No candidates" description="This tool result did not produce preliminary issue observations." icon={ShieldCheck} />
+            )}
+          </div>
+        </div>
+        <div className="space-y-4">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="mb-3 text-sm font-semibold text-white">Next safe checks</div>
+            <div className="space-y-2">
+              {result.next_safe_checks.length > 0 ? (
+                result.next_safe_checks.map((check) => (
+                  <div key={check} className="rounded-2xl border border-white/10 bg-slate-950/70 p-3 text-sm leading-6 text-slate-300">
+                    {check}
+                  </div>
+                ))
+              ) : (
+                <EmptyState
+                  title="No follow-up suggestions"
+                  description="The current tool result does not recommend additional diagnostic-only checks."
+                  icon={Workflow}
+                />
+              )}
+            </div>
+          </div>
+          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="mb-3 text-sm font-semibold text-white">Artifacts</div>
+            <div className="space-y-2">
+              {result.artifacts.length > 0 ? (
+                result.artifacts.map((artifact) => (
+                  <div key={`${artifact.kind}-${artifact.path}`} className="rounded-2xl border border-white/10 bg-slate-950/70 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className="border-white/10 bg-white/5 text-slate-200">{artifact.kind}</Badge>
+                      <span className="text-sm text-slate-200">{artifact.description ?? "Evidence artifact"}</span>
+                    </div>
+                    <div className="mt-2 break-all font-mono text-xs text-slate-500">{artifact.path}</div>
+                  </div>
+                ))
+              ) : (
+                <EmptyState title="No artifacts" description="This tool result did not persist any files." icon={FileText} />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [section, setSection] = useState<SectionId>("overview");
   const [health, setHealth] = useState<{ status: string; service: string } | null>(null);
+  const [enginePulse, setEnginePulse] = useState<EnginePulseView | null>(null);
+  const [modelSettings, setModelSettings] = useState<OllamaModelView | null>(null);
   const [dashboard, setDashboard] = useState<DashboardView | null>(null);
   const [runs, setRuns] = useState<RunView[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<RunView | null>(null);
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
+  const [evidenceTab, setEvidenceTab] = useState<EvidenceTab>("parsed");
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [plannerResult, setPlannerResult] = useState<LLMPlannerResponse | null>(null);
   const [scopeUpload, setScopeUpload] = useState<ScopeUploadResponse | null>(null);
@@ -237,10 +462,30 @@ function App() {
   const [scopeFile, setScopeFile] = useState<File | null>(null);
   const [scopeProfile, setScopeProfile] = useState("passive-only");
   const [scopeActivate, setScopeActivate] = useState(true);
+  const [templateDraft, setTemplateDraft] = useState({
+    template_id: "web-surface-mapping",
+    scope_name: "",
+    target_url: "",
+    allowed_subdomains: "www, app",
+    login_areas_allowed: "/login",
+    apis_allowed: "/api",
+    tool_allowlist: "",
+    authorization_note: "Authorized by the site owner for defensive assessment only.",
+    contacts: "",
+    notes: "",
+    profile: "passive-only",
+    activate: true,
+  });
+  const [generatedTemplate, setGeneratedTemplate] = useState<ScopeTemplateResponse | null>(null);
+  const [templateBusy, setTemplateBusy] = useState(false);
   const [runProfile, setRunProfile] = useState("passive-only");
   const [manualNotes, setManualNotes] = useState("");
   const [includeApprovedActive, setIncludeApprovedActive] = useState(false);
   const [plannerModel, setPlannerModel] = useState("");
+  const [useBackendDefaultModel, setUseBackendDefaultModel] = useState(true);
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const [purgeConfirm, setPurgeConfirm] = useState("");
+  const [purgeBusy, setPurgeBusy] = useState(false);
   const [approvalDrafts, setApprovalDrafts] = useState<
     Record<string, { approved_by: string; note: string }>
   >({});
@@ -248,16 +493,26 @@ function App() {
 
   async function refreshSnapshot() {
     try {
-      const [healthData, dashboardData, runList] = await Promise.all([
+      const [healthData, dashboardData, runList, modelData, pulseData] = await Promise.all([
         api.health(),
         api.dashboard(),
         api.runs(12),
+        api.ollamaModel(),
+        api.enginePulse(),
       ]);
       setHealth(healthData);
       setDashboard(dashboardData);
       setRuns(runList);
-      if (!selectedRunId) {
-        setSelectedRunId(dashboardData.latest_run?.id ?? runList[0]?.id ?? null);
+      setModelSettings(modelData);
+      setPlannerModel((current) => current || modelData.selected_model);
+      setEnginePulse(pulseData);
+      const runIds = new Set(runList.map((run) => run.id));
+      const scopedRuns = dashboardData.current_scope?.id
+        ? runList.filter((run) => run.scope_id === dashboardData.current_scope?.id)
+        : runList;
+      const nextRunId = dashboardData.latest_run?.id ?? scopedRuns[0]?.id ?? runList[0]?.id ?? null;
+      if (!selectedRunId || (selectedRunId && !runIds.has(selectedRunId))) {
+        setSelectedRunId(nextRunId);
       }
     } catch (caught) {
       setError(normalizeError(caught));
@@ -312,17 +567,47 @@ function App() {
   }, [selectedRun?.state, selectedRunId]);
 
   useEffect(() => {
-    if (!selectedRunId) {
-      const nextRun = dashboard?.latest_run?.id ?? runs[0]?.id ?? null;
-      if (nextRun) {
+    const activeScopeId = dashboard?.current_scope?.id ?? null;
+    const scopedRunList = activeScopeId ? runs.filter((run) => run.scope_id === activeScopeId) : runs;
+    const nextRun = dashboard?.latest_run?.id ?? scopedRunList[0]?.id ?? runs[0]?.id ?? null;
+    if (!selectedRunId || !scopedRunList.some((run) => run.id === selectedRunId)) {
+      if (nextRun !== selectedRunId) {
         setSelectedRunId(nextRun);
       }
     }
-  }, [dashboard, runs, selectedRunId]);
+  }, [dashboard?.current_scope?.id, dashboard?.latest_run?.id, runs, selectedRunId]);
+
+  useEffect(() => {
+    if (useBackendDefaultModel && modelSettings?.selected_model) {
+      setPlannerModel(modelSettings.selected_model);
+    }
+  }, [modelSettings, useBackendDefaultModel]);
 
   const currentScope = dashboard?.current_scope ?? null;
   const currentPlan = dashboard?.current_plan ?? scopeUpload?.plan ?? null;
   const currentRun = selectedRun ?? dashboard?.latest_run ?? null;
+  const visibleRuns = currentScope ? runs.filter((run) => run.scope_id === currentScope.id) : runs;
+  const scopedRuns = visibleRuns.length > 0 ? visibleRuns : runs;
+  const currentEvidenceResults = currentRun?.tool_results ?? [];
+  const currentEvidenceCorrelation = currentRun?.evidence_correlation ?? null;
+  const selectedEvidenceResult =
+    currentEvidenceResults.find((result) => String(result.id) === selectedEvidenceId) ?? currentEvidenceResults[0] ?? null;
+
+  useEffect(() => {
+    if (currentEvidenceResults.length === 0) {
+      if (selectedEvidenceId !== null) {
+        setSelectedEvidenceId(null);
+      }
+      return;
+    }
+    const nextEvidenceId = String(currentEvidenceResults[0].id);
+    if (!selectedEvidenceId || !currentEvidenceResults.some((result) => String(result.id) === selectedEvidenceId)) {
+      if (selectedEvidenceId !== nextEvidenceId) {
+        setSelectedEvidenceId(nextEvidenceId);
+      }
+    }
+  }, [currentRun?.id, currentEvidenceResults, selectedEvidenceId]);
+
   const approvalQueue = currentRun
     ? currentRun.actions.filter(
         (action) =>
@@ -361,6 +646,44 @@ function App() {
     }
   }
 
+  async function handleTemplateGenerate() {
+    if (!templateDraft.target_url.trim()) {
+      setError("Enter a target URL before generating a scope template.");
+      return;
+    }
+    setTemplateBusy(true);
+    setError(null);
+    try {
+      const response = await api.generateScopeTemplate({
+        template_id: templateDraft.template_id,
+        scope_name: templateDraft.scope_name.trim(),
+        target_url: templateDraft.target_url.trim(),
+        allowed_subdomains: splitEntries(templateDraft.allowed_subdomains),
+        login_areas_allowed: splitEntries(templateDraft.login_areas_allowed),
+        apis_allowed: splitEntries(templateDraft.apis_allowed),
+        tool_allowlist: splitEntries(templateDraft.tool_allowlist),
+        authorization_note: templateDraft.authorization_note.trim(),
+        contacts: splitEntries(templateDraft.contacts),
+        notes: templateDraft.notes.trim() || null,
+        profile: templateDraft.profile,
+        activate: templateDraft.activate,
+      });
+      setGeneratedTemplate(response);
+      setScopeUpload({
+        scope: response.scope,
+        plan: response.plan,
+        validation_message: response.validation_message,
+      });
+      setSelectedRunId(null);
+      setSection("scope");
+      await refreshSnapshot();
+    } catch (caught) {
+      setError(normalizeError(caught));
+    } finally {
+      setTemplateBusy(false);
+    }
+  }
+
   async function handleStartRun() {
     setBusyAction("start-run");
     setError(null);
@@ -377,6 +700,52 @@ function App() {
       setError(normalizeError(caught));
     } finally {
       setBusyAction(null);
+    }
+  }
+
+  async function handleSaveModel() {
+    const model = plannerModel.trim();
+    if (!model) {
+      setError("Enter a model before saving it.");
+      return;
+    }
+    setBusyAction("save-model");
+    setError(null);
+    try {
+      const response = await api.setOllamaModel(model);
+      setModelSettings(response);
+      setPlannerModel(response.selected_model);
+      setUseBackendDefaultModel(true);
+      await refreshSnapshot();
+    } catch (caught) {
+      setError(normalizeError(caught));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleWorkspacePurge() {
+    setPurgeBusy(true);
+    setError(null);
+    try {
+      await api.purgeWorkspace({ confirmation: purgeConfirm });
+      setPurgeConfirm("");
+      setPurgeOpen(false);
+      setSelectedRunId(null);
+      setSelectedRun(null);
+      setReport(null);
+      setScopeUpload(null);
+      setGeneratedTemplate(null);
+      setPlannerResult(null);
+      setSelectedEvidenceId(null);
+      setEvidenceTab("parsed");
+      setPlannerModel("");
+      setUseBackendDefaultModel(true);
+      await refreshSnapshot();
+    } catch (caught) {
+      setError(normalizeError(caught));
+    } finally {
+      setPurgeBusy(false);
     }
   }
 
@@ -403,17 +772,23 @@ function App() {
     }
   }
 
-  async function handlePlanner() {
+  async function handlePlanner(navigateToPlanner = true) {
     setBusyAction("planner");
     setError(null);
     try {
+      const modelToUse = useBackendDefaultModel ? null : plannerModel.trim() || null;
+      if (modelToUse) {
+        await api.setOllamaModel(modelToUse);
+      }
       const response = await api.planner({
         run_id: currentRun?.id ?? null,
         scope_id: currentScope?.id ?? null,
-        model: plannerModel || null,
+        model: modelToUse,
       });
       setPlannerResult(response);
-      setSection("planner");
+      if (navigateToPlanner) {
+        setSection("planner");
+      }
     } catch (caught) {
       setError(normalizeError(caught));
     } finally {
@@ -426,13 +801,13 @@ function App() {
       label: "Runs",
       value: formatCount(dashboard?.counts?.runs),
       detail: "Persisted assessment runs in the local SQLite store.",
-      tone: "text-cyan-200",
+      tone: "text-red-200",
     },
     {
       label: "Findings",
       value: formatCount(dashboard?.counts?.findings),
       detail: "Normalized findings with redacted evidence.",
-      tone: "text-emerald-200",
+      tone: "text-rose-200",
     },
     {
       label: "Pending approvals",
@@ -444,7 +819,15 @@ function App() {
       label: "Approved active",
       value: formatCount(dashboard?.counts?.approved_actions),
       detail: "Active steps that have explicit approval on record.",
-      tone: "text-sky-200",
+      tone: "text-red-100",
+    },
+    {
+      label: "Engine pulse",
+      value: enginePulse?.status ?? "unknown",
+      detail: modelSettings?.selected_model
+        ? `${modelSettings.selected_model} ${enginePulse?.selected_model_available ? "available" : "needs attention"}`
+        : "LLM health is checked via the Ollama Tags API.",
+      tone: enginePulse?.status === "ok" ? "text-red-100" : "text-amber-200",
     },
   ];
 
@@ -457,7 +840,7 @@ function App() {
           <div className={cx(panelBase, "flex h-full flex-col p-5")}>
             <div className="space-y-3 border-b border-white/5 pb-5">
               <div className="space-y-3">
-                <BrandLogo className="max-w-[220px] drop-shadow-[0_0_28px_rgba(248,113,113,0.45)]" />
+                <BrandLogo className="max-w-[220px] drop-shadow-[0_0_28px_rgba(215,0,0,0.45)]" />
                 <div>
                   <div className="text-lg font-semibold tracking-tight text-white">Pengetic</div>
                   <div className="text-sm text-slate-400">Local-first defensive web assessment platform</div>
@@ -482,8 +865,8 @@ function App() {
               ))}
             </nav>
 
-            <div className="mt-6 grid gap-3 rounded-3xl border border-cyan-400/10 bg-cyan-400/5 p-4">
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300/80">
+            <div className="mt-6 grid gap-3 rounded-3xl border border-red-400/10 bg-red-400/5 p-4">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-red-300/80">
                 <ShieldCheck className="h-4 w-4" />
                 Safety model
               </div>
@@ -497,11 +880,11 @@ function App() {
 
             <div className="mt-auto space-y-3 border-t border-white/5 pt-5 text-xs text-slate-500">
               <div className="flex items-center gap-2">
-                <Database className="h-4 w-4 text-cyan-300/70" />
+                <Database className="h-4 w-4 text-red-300/70" />
                 SQLite-backed runs, approvals, findings, and artifacts.
               </div>
               <div className="flex items-center gap-2">
-                <TerminalSquare className="h-4 w-4 text-cyan-300/70" />
+                <TerminalSquare className="h-4 w-4 text-red-300/70" />
                 LLM planner uses Ollama through the OpenAI-compatible API.
               </div>
             </div>
@@ -514,7 +897,7 @@ function App() {
               <div className="max-w-4xl space-y-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge className={stateTone(sidebarState)}>{titleCase(sidebarState)}</Badge>
-                  <Badge className="border-cyan-400/20 bg-cyan-400/10 text-cyan-200">
+                  <Badge className="border-red-400/20 bg-red-400/10 text-red-200">
                     {currentScope ? currentScope.name : "No validated scope loaded"}
                   </Badge>
                   <Badge className="border-white/10 bg-white/5 text-slate-200">
@@ -533,11 +916,11 @@ function App() {
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-sm text-slate-400">
                   <span className="flex items-center gap-2">
-                    <Clock3 className="h-4 w-4 text-cyan-300/70" />
+                    <Clock3 className="h-4 w-4 text-red-300/70" />
                     {health ? `Connected to ${health.service}` : "Awaiting backend health"}
                   </span>
                   <span className="flex items-center gap-2">
-                    <ArrowUpRight className="h-4 w-4 text-cyan-300/70" />
+                    <ArrowUpRight className="h-4 w-4 text-red-300/70" />
                     Local-first, scope-bound, approval-gated
                   </span>
                 </div>
@@ -550,11 +933,19 @@ function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={handlePlanner}
-                  className={cx(buttonBase, "border-cyan-400/20 bg-cyan-400/10 text-cyan-100")}
+                  onClick={() => void handlePlanner()}
+                  className={cx(buttonBase, "border-red-400/20 bg-red-500/10 text-red-100")}
                 >
                   <Sparkles className="h-4 w-4" />
                   Ask planner
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPurgeOpen(true)}
+                  className={cx(buttonBase, "border-rose-500/20 bg-rose-500/10 text-rose-100")}
+                >
+                  <Workflow className="h-4 w-4" />
+                  Purge workspace
                 </button>
               </div>
             </div>
@@ -569,7 +960,57 @@ function App() {
             <>
               {section === "overview" ? (
                 <div className="space-y-6">
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div className={cx(panelBase, "p-5")}>
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <p className="text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-red-300/80">
+                          Operational flow
+                        </p>
+                        <h2 className="mt-1 text-xl font-semibold tracking-tight text-white">
+                          Scope to report, in a single approved sequence
+                        </h2>
+                        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+                          Pengetic keeps the lifecycle linear: define scope, discover the surface, analyze state,
+                          aggregate evidence, then export the report.
+                        </p>
+                      </div>
+                      <button type="button" onClick={() => setSection("scope")} className={buttonBase}>
+                        <Workflow className="h-4 w-4" />
+                        Start with scope
+                      </button>
+                    </div>
+                    <div className="mt-5 grid gap-4 lg:grid-cols-5">
+                      {workflowStages.map((stage, index) => (
+                        <button
+                          key={stage.id}
+                          type="button"
+                          onClick={() => setSection(stage.id as SectionId)}
+                          className={cx(
+                            "group rounded-3xl border p-4 text-left transition",
+                            section === stage.id
+                              ? "border-red-400/30 bg-red-500/10"
+                              : "border-white/10 bg-white/[0.03] hover:border-red-400/20 hover:bg-white/[0.05]",
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                              Stage {index + 1}
+                            </span>
+                            <span
+                              className={cx(
+                                "h-2.5 w-2.5 rounded-full",
+                                section === stage.id ? "bg-red-400" : "bg-slate-600",
+                              )}
+                            />
+                          </div>
+                          <h3 className="mt-4 text-base font-semibold text-white">{stage.title}</h3>
+                          <p className="mt-2 text-sm leading-6 text-slate-400">{stage.description}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                     {overviewMetrics.map((metric) => (
                       <MetricCard
                         key={metric.label}
@@ -604,7 +1045,7 @@ function App() {
                                 type="checkbox"
                                 checked={includeApprovedActive}
                                 onChange={(event) => setIncludeApprovedActive(event.target.checked)}
-                                className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-cyan-500 focus:ring-cyan-400/30"
+                                className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-red-500 focus:ring-red-400/30"
                               />
                               Execute approved active steps
                             </label>
@@ -625,7 +1066,7 @@ function App() {
                           onClick={handleStartRun}
                           className={cx(
                             buttonBase,
-                            "w-full border-cyan-400/20 bg-cyan-400/15 text-cyan-50 hover:bg-cyan-400/20",
+                            "w-full border-red-400/20 bg-red-400/15 text-red-50 hover:bg-red-400/20",
                           )}
                           disabled={busyAction === "start-run"}
                         >
@@ -718,7 +1159,7 @@ function App() {
                               className={cx(
                                 "flex w-full items-start justify-between gap-4 rounded-2xl border px-4 py-3 text-left transition",
                                 selectedRunId === run.id
-                                  ? "border-cyan-400/30 bg-cyan-400/10"
+                                  ? "border-red-400/30 bg-red-400/10"
                                   : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]",
                               )}
                             >
@@ -748,6 +1189,7 @@ function App() {
               ) : null}
               {section === "scope" ? (
                 <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+                  <div className="space-y-6">
                   <Card eyebrow="Upload" title="Scope upload and validation">
                     <div className="space-y-5">
                       <div className="space-y-2">
@@ -756,7 +1198,7 @@ function App() {
                           type="file"
                           accept=".yaml,.yml,text/yaml,text/plain"
                           onChange={(event) => setScopeFile(event.target.files?.[0] ?? null)}
-                          className="block w-full cursor-pointer rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300 file:mr-4 file:rounded-full file:border-0 file:bg-cyan-400/15 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-cyan-100 hover:border-cyan-400/20"
+                          className="block w-full cursor-pointer rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300 file:mr-4 file:rounded-full file:border-0 file:bg-red-400/15 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-red-100 hover:border-red-400/20"
                         />
                         {scopeFile ? <p className="text-xs text-slate-500">Selected: {scopeFile.name}</p> : null}
                       </div>
@@ -781,7 +1223,7 @@ function App() {
                               type="checkbox"
                               checked={scopeActivate}
                               onChange={(event) => setScopeActivate(event.target.checked)}
-                              className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-cyan-500 focus:ring-cyan-400/30"
+                              className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-red-500 focus:ring-red-400/30"
                             />
                             Activate generated plan
                           </label>
@@ -791,7 +1233,7 @@ function App() {
                       <button
                         type="button"
                         onClick={handleScopeUpload}
-                        className={cx(buttonBase, "w-full border-cyan-400/20 bg-cyan-400/15 text-cyan-50")}
+                        className={cx(buttonBase, "w-full border-red-400/20 bg-red-400/15 text-red-50")}
                         disabled={busyAction === "scope-upload"}
                       >
                         {busyAction === "scope-upload" ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
@@ -813,6 +1255,205 @@ function App() {
                       ) : null}
                     </div>
                   </Card>
+                  <Card eyebrow="Templates" title="One-click scope generation">
+                    <div className="space-y-5">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label text="Template" hint="Pre-populates the validated scope" />
+                          <select
+                            value={templateDraft.template_id}
+                            onChange={(event) =>
+                              setTemplateDraft((current) => ({
+                                ...current,
+                                template_id: event.target.value,
+                                tool_allowlist:
+                                  event.target.value === "api-surface-mapping"
+                                    ? "header-review, tls-review, robots-fetch, sitemap-fetch, route-inventory, tech-fingerprint, manual-review, nmap-service-discovery, approved-api-surface-probe"
+                                    : event.target.value === "internal-audit"
+                                      ? "header-review, tls-review, robots-fetch, sitemap-fetch, route-inventory, tech-fingerprint, manual-review, nmap-service-discovery, approved-login-surface-probe, approved-api-surface-probe"
+                                      : "header-review, tls-review, robots-fetch, sitemap-fetch, route-inventory, tech-fingerprint, manual-review, nmap-service-discovery",
+                              }))
+                            }
+                            className={selectBase}
+                          >
+                            <option value="web-surface-mapping">Web Surface Mapping</option>
+                            <option value="internal-audit">Internal Audit</option>
+                            <option value="api-surface-mapping">API Surface Mapping</option>
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label text="Scope name" hint="Stored in SQLite and the report" />
+                          <input
+                            value={templateDraft.scope_name}
+                            onChange={(event) =>
+                              setTemplateDraft((current) => ({ ...current, scope_name: event.target.value }))
+                            }
+                            className={inputBase}
+                            placeholder="Pengetic assessment"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label text="Target URL" hint="Root URL for the generated scope" />
+                          <input
+                            value={templateDraft.target_url}
+                            onChange={(event) =>
+                              setTemplateDraft((current) => ({ ...current, target_url: event.target.value }))
+                            }
+                            className={inputBase}
+                            placeholder="https://example.com"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label text="Contacts" hint="Comma-separated authorization contacts" />
+                          <input
+                            value={templateDraft.contacts}
+                            onChange={(event) =>
+                              setTemplateDraft((current) => ({ ...current, contacts: event.target.value }))
+                            }
+                            className={inputBase}
+                            placeholder="security@example.com, ops@example.com"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div className="space-y-2">
+                          <Label text="Allowed subdomains" hint="Comma-separated" />
+                          <input
+                            value={templateDraft.allowed_subdomains}
+                            onChange={(event) =>
+                              setTemplateDraft((current) => ({ ...current, allowed_subdomains: event.target.value }))
+                            }
+                            className={inputBase}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label text="Login areas" hint="Comma-separated paths" />
+                          <input
+                            value={templateDraft.login_areas_allowed}
+                            onChange={(event) =>
+                              setTemplateDraft((current) => ({ ...current, login_areas_allowed: event.target.value }))
+                            }
+                            className={inputBase}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label text="API routes" hint="Comma-separated paths" />
+                          <input
+                            value={templateDraft.apis_allowed}
+                            onChange={(event) =>
+                              setTemplateDraft((current) => ({ ...current, apis_allowed: event.target.value }))
+                            }
+                            className={inputBase}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label text="Authorization note" hint="Required for the generated scope" />
+                        <textarea
+                          value={templateDraft.authorization_note}
+                          onChange={(event) =>
+                            setTemplateDraft((current) => ({ ...current, authorization_note: event.target.value }))
+                          }
+                          rows={3}
+                          className={textareaBase}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label text="Tool allowlist" hint="Leave blank to use the template defaults" />
+                        <textarea
+                          value={templateDraft.tool_allowlist}
+                          onChange={(event) =>
+                            setTemplateDraft((current) => ({ ...current, tool_allowlist: event.target.value }))
+                          }
+                          rows={3}
+                          className={textareaBase}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label text="Notes" hint="Optional analyst note or context" />
+                        <textarea
+                          value={templateDraft.notes}
+                          onChange={(event) =>
+                            setTemplateDraft((current) => ({ ...current, notes: event.target.value }))
+                          }
+                          rows={3}
+                          className={textareaBase}
+                        />
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label text="Profile" hint="Matches the generated plan" />
+                          <select
+                            value={templateDraft.profile}
+                            onChange={(event) =>
+                              setTemplateDraft((current) => ({ ...current, profile: event.target.value }))
+                            }
+                            className={selectBase}
+                          >
+                            <option value="passive-only">passive-only</option>
+                            <option value="report-only">report-only</option>
+                            <option value="lab-safe">lab-safe</option>
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label text="Activate" hint="Store as the current scope and plan" />
+                          <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200">
+                            <input
+                              type="checkbox"
+                              checked={templateDraft.activate}
+                              onChange={(event) =>
+                                setTemplateDraft((current) => ({ ...current, activate: event.target.checked }))
+                              }
+                              className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-red-500 focus:ring-red-400/30"
+                            />
+                            Activate generated scope and plan
+                          </label>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleTemplateGenerate}
+                        className={cx(buttonBase, "w-full border-red-400/20 bg-red-500/15 text-red-50")}
+                        disabled={templateBusy}
+                      >
+                        {templateBusy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                        Generate scope template
+                      </button>
+
+                      {generatedTemplate ? (
+                        <div className="space-y-4 rounded-3xl border border-red-400/15 bg-red-500/5 p-5">
+                          <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-red-100">
+                            <ShieldCheck className="h-4 w-4" />
+                            {generatedTemplate.validation_message}
+                          </div>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <LabeledValue label="Scope" value={generatedTemplate.scope.name} />
+                            <LabeledValue label="Plan" value={generatedTemplate.plan.id} />
+                            <LabeledValue label="Actions" value={generatedTemplate.plan.actions.length} />
+                            <LabeledValue label="Template" value={generatedTemplate.template_id} />
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-slate-950/80 p-4">
+                            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                              Generated YAML
+                            </div>
+                            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-200">
+                              {generatedTemplate.generated_yaml}
+                            </pre>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </Card>
+                  </div>
 
                   <Card eyebrow="Validated boundary" title="Current scope record">
                     {currentScope ? (
@@ -852,9 +1493,9 @@ function App() {
               ) : null}
               {section === "plan" ? (
                 <Card
-                  eyebrow="Plan viewer"
-                  title="Risk-labelled assessment plan"
-                  description={currentPlan ? planSummary : "Upload a scope to generate the current plan."}
+                  eyebrow="Discovery"
+                  title="Automated discovery plan"
+                  description={currentPlan ? planSummary : "Upload or generate a scope to build the current discovery plan."}
                 >
                   {currentPlan ? (
                     <div className="grid gap-5">
@@ -870,7 +1511,7 @@ function App() {
                           label="Allowed"
                           value={String(planCounts.allowed)}
                           detail="Present in allowlist."
-                          tone="text-cyan-200"
+                          tone="text-red-200"
                         />
                         <MetricCard
                           label="Blocked"
@@ -942,9 +1583,9 @@ function App() {
               ) : null}
               {section === "run" ? (
                 <Card
-                  eyebrow="Run control"
-                  title="Live assessment view"
-                  description="Inspect the latest run, follow the event stream, and review findings and artifacts."
+                  eyebrow="Analysis"
+                  title="State analysis and evidence"
+                  description="Inspect the latest run, follow the event stream, and review findings, artifacts, and service analysis."
                   actions={
                     <div className="flex flex-wrap items-center gap-2">
                       <select
@@ -953,7 +1594,7 @@ function App() {
                         className={cx(selectBase, "max-w-[16rem]")}
                       >
                         <option value="">Select a run</option>
-                        {runs.map((run) => (
+                        {scopedRuns.map((run) => (
                           <option key={run.id} value={run.id}>
                             {run.scope_name} | {run.profile} | {run.id.slice(0, 8)}
                           </option>
@@ -983,6 +1624,12 @@ function App() {
                           <Badge className={statusTone(currentRun.status)}>{statusLabel(currentRun.status)}</Badge>
                           <Badge className="border-white/10 bg-white/5 text-slate-200">{currentRun.profile}</Badge>
                           <Badge className="border-white/10 bg-white/5 text-slate-200">{currentRun.actions.length} actions</Badge>
+                          <Badge className="border-red-400/20 bg-red-500/10 text-red-100">
+                            {currentRun.scope_name}
+                          </Badge>
+                          <Badge className="border-white/10 bg-white/5 text-slate-200">
+                            {currentRun.scope_fingerprint.slice(0, 12)}
+                          </Badge>
                         </div>
 
                         <div className="grid gap-4 md:grid-cols-2">
@@ -995,7 +1642,7 @@ function App() {
                         <div className="grid gap-4 lg:grid-cols-2">
                           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
                             <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
-                              <TerminalSquare className="h-4 w-4 text-cyan-300/80" />
+                              <TerminalSquare className="h-4 w-4 text-red-300/80" />
                               Event log
                             </div>
                             <div className="max-h-[560px] space-y-3 overflow-auto pr-1">
@@ -1015,9 +1662,94 @@ function App() {
                                     ) : null}
                                   </div>
                                 ))
-                              ) : (
+                          ) : (
                                 <EmptyState title="No events yet" description="Events appear as the run executes." icon={TerminalSquare} />
                               )}
+                            </div>
+                          </div>
+
+                          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                            <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+                              <Database className="h-4 w-4 text-red-300/80" />
+                              Structured evidence
+                            </div>
+                            <div className="grid gap-4 md:grid-cols-3">
+                              <MetricCard
+                                label="Tools"
+                                value={String(currentEvidenceCorrelation?.tool_ids.length ?? currentEvidenceResults.length)}
+                                detail="Normalized tool results correlated for this run."
+                                tone="text-red-100"
+                              />
+                              <MetricCard
+                                label="Services"
+                                value={String(currentEvidenceCorrelation?.service_inventory.length ?? 0)}
+                                detail="Service inventory merged from diagnostic modules."
+                                tone="text-white"
+                              />
+                              <MetricCard
+                                label="Observations"
+                                value={String(currentEvidenceCorrelation?.observations.length ?? 0)}
+                                detail="Cross-tool summary points for planner ingestion."
+                                tone="text-amber-100"
+                              />
+                            </div>
+
+                            <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+                              <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                                <div className="mb-3 text-sm font-semibold text-white">Service inventory</div>
+                                <div className="space-y-3">
+                                  {(currentEvidenceCorrelation?.service_inventory ?? []).length > 0 ? (
+                                    currentEvidenceCorrelation!.service_inventory.map((service, index) => {
+                                      const record = service as Record<string, unknown>;
+                                      const host = String(record.host ?? record.ip ?? record.address ?? currentRun.scope_name);
+                                      const port = String(record.port ?? record.portid ?? record.service_port ?? "n/a");
+                                      const serviceName = String(record.service ?? record.name ?? record.protocol ?? "service");
+                                      const product = [record.product, record.version].filter(Boolean).join(" ").trim();
+                                      return (
+                                        <div key={`${host}-${port}-${serviceName}-${index}`} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <Badge className="border-red-400/20 bg-red-500/10 text-red-100">{host}</Badge>
+                                            <Badge className="border-white/10 bg-white/5 text-slate-200">{port}</Badge>
+                                            <span className="font-semibold text-white">{serviceName}</span>
+                                          </div>
+                                          <div className="mt-2 text-xs text-slate-400">
+                                            {product || "No version hint captured"}
+                                            {record.protocol ? ` · ${String(record.protocol)}` : ""}
+                                          </div>
+                                          <pre className="mt-2 overflow-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-300">
+                                            {formatJsonValue(record)}
+                                          </pre>
+                                        </div>
+                                      );
+                                    })
+                                  ) : (
+                                    <EmptyState
+                                      title="No service inventory"
+                                      description="Run Nmap or another approved discovery module to populate correlated service data."
+                                      icon={Database}
+                                    />
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                                <div className="mb-3 text-sm font-semibold text-white">Correlation notes</div>
+                                <div className="space-y-2">
+                                  {(currentEvidenceCorrelation?.observations ?? []).length > 0 ? (
+                                    currentEvidenceCorrelation!.observations.map((observation) => (
+                                      <div key={observation} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-sm leading-6 text-slate-300">
+                                        {observation}
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <EmptyState
+                                      title="No cross-tool observations"
+                                      description="Structured correlation will appear once multiple modules contribute evidence."
+                                      icon={Workflow}
+                                    />
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           </div>
 
@@ -1054,7 +1786,7 @@ function App() {
 
                             <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
                               <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
-                                <FileText className="h-4 w-4 text-cyan-300/80" />
+                                <FileText className="h-4 w-4 text-red-300/80" />
                                 Evidence artifacts
                               </div>
                               <div className="space-y-3">
@@ -1091,7 +1823,7 @@ function App() {
                             Action status
                           </div>
                           <div className="space-y-3">
-                            {currentRun.actions.map((action) => (
+                      {currentRun.actions.map((action) => (
                               <div key={action.action_id} className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <Badge className={statusTone(action.status)}>{statusLabel(action.status)}</Badge>
@@ -1108,7 +1840,92 @@ function App() {
 
                         <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
                           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
-                            <Sparkles className="h-4 w-4 text-cyan-300/80" />
+                            <FileText className="h-4 w-4 text-red-300/80" />
+                            Tool intelligence
+                          </div>
+                          <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+                            <div className="space-y-3">
+                              {currentEvidenceResults.length > 0 ? (
+                                currentEvidenceResults.map((result) => (
+                                  <ToolResultSummary
+                                    key={result.id}
+                                    result={result}
+                                    selected={String(result.id) === selectedEvidenceId}
+                                    onSelect={() => setSelectedEvidenceId(String(result.id))}
+                                  />
+                                ))
+                              ) : (
+                                <EmptyState
+                                  title="No tool results yet"
+                                  description="Normalized tool results will appear here after approved diagnostics run."
+                                  icon={FileText}
+                                />
+                              )}
+                            </div>
+                            <EvidenceDetail
+                              result={selectedEvidenceResult}
+                              activeTab={evidenceTab}
+                              onTabChange={setEvidenceTab}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+                            <Sparkles className="h-4 w-4 text-red-300/80" />
+                            Planner guidance
+                          </div>
+                          {plannerResult ? (
+                            <div className="space-y-4">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge className="border-red-400/20 bg-red-400/10 text-red-200">{plannerResult.source}</Badge>
+                                <Badge className="border-white/10 bg-white/5 text-slate-200">{plannerResult.model}</Badge>
+                                <Badge className={stateTone(currentRun.state)}>{titleCase(currentRun.state)}</Badge>
+                              </div>
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <LabeledValue label="Next safe step" value={plannerResult.next_allowed_step} />
+                                <LabeledValue label="Recommended action" value={plannerResult.recommended_action_id ?? "None"} />
+                              </div>
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <LabeledValue
+                                  label="Likely concerns"
+                                  value={plannerResult.likely_areas_of_concern.length > 0 ? plannerResult.likely_areas_of_concern.join(" / ") : "None"}
+                                />
+                                <LabeledValue
+                                  label="Evidence refs"
+                                  value={plannerResult.evidence_references.length > 0 ? plannerResult.evidence_references.join(" / ") : "None"}
+                                />
+                              </div>
+                              <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-4">
+                                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                                  Rationale
+                                </div>
+                                <p className="text-sm leading-7 text-slate-300">{plannerResult.rationale}</p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <EmptyState
+                                title="No planner guidance yet"
+                                description="Ask the planner to summarize the current run and propose the next allowed step."
+                                icon={Sparkles}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void handlePlanner(false)}
+                                className={cx(buttonBase, "w-full border-red-400/20 bg-red-500/10 text-red-100")}
+                                disabled={busyAction === "planner"}
+                              >
+                                {busyAction === "planner" ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
+                                Generate planner guidance
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+                          <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+                            <Sparkles className="h-4 w-4 text-red-300/80" />
                             Run summary
                           </div>
                           <div className="grid gap-4">
@@ -1126,7 +1943,7 @@ function App() {
                 </Card>
               ) : null}
               {section === "approvals" ? (
-                <Card eyebrow="Approval queue" title="Non-passive actions awaiting explicit approval">
+                <Card eyebrow="Evidence aggregation" title="Non-passive actions awaiting explicit approval">
                   {approvalQueue.length > 0 ? (
                     <div className="space-y-4">
                       {approvalQueue.map((action) => {
@@ -1184,7 +2001,7 @@ function App() {
                               <button
                                 type="button"
                                 onClick={() => void handleApprove(action as RunActionView)}
-                                className={cx(buttonBase, "w-full border-cyan-400/20 bg-cyan-400/15 text-cyan-50")}
+                                className={cx(buttonBase, "w-full border-red-400/20 bg-red-400/15 text-red-50")}
                                 disabled={busyAction === `approve-${action.action_id}`}
                               >
                                 {busyAction === `approve-${action.action_id}` ? (
@@ -1206,12 +2023,12 @@ function App() {
               ) : null}
               {section === "reports" ? (
                 <Card
-                  eyebrow="Report viewer"
+                  eyebrow="Reporting"
                   title="Rendered Markdown report"
                   description="The assessment report is generated locally and can be exported as Markdown."
                   actions={
                     currentRun && reportLink ? (
-                      <a href={reportLink} className={cx(buttonBase, "border-cyan-400/20 bg-cyan-400/15 text-cyan-50")}>
+                      <a href={reportLink} className={cx(buttonBase, "border-red-400/20 bg-red-400/15 text-red-50")}>
                         <FileDown className="h-4 w-4" />
                         Export markdown
                       </a>
@@ -1229,7 +2046,7 @@ function App() {
                         </div>
                         <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-5">
                           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
-                            <FileText className="h-4 w-4 text-cyan-300/80" />
+                            <FileText className="h-4 w-4 text-red-300/80" />
                             Markdown output
                           </div>
                           <pre className="max-h-[700px] overflow-auto whitespace-pre-wrap break-words rounded-2xl bg-slate-950/80 p-4 text-sm leading-7 text-slate-200">
@@ -1241,7 +2058,7 @@ function App() {
                       <div className="space-y-4">
                         <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
                           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
-                            <Sparkles className="h-4 w-4 text-cyan-300/80" />
+                            <Sparkles className="h-4 w-4 text-red-300/80" />
                             Report summary
                           </div>
                           <div className="grid gap-4">
@@ -1254,7 +2071,7 @@ function App() {
 
                         <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
                           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
-                            <FileDown className="h-4 w-4 text-cyan-300/80" />
+                            <FileDown className="h-4 w-4 text-red-300/80" />
                             Export notes
                           </div>
                           <p className="text-sm leading-6 text-slate-400">
@@ -1277,13 +2094,31 @@ function App() {
                 <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
                   <Card eyebrow="LLM planner" title="Ollama-backed suggestion service">
                     <div className="space-y-5">
+                      <label className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-200">
+                        <span>
+                          <span className="block font-semibold text-white">Backend Default</span>
+                          <span className="block text-xs text-slate-500">
+                            Use the stored model from the backend unless you need a temporary override.
+                          </span>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={useBackendDefaultModel}
+                          onChange={(event) => setUseBackendDefaultModel(event.target.checked)}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-red-500 focus:ring-red-400/30"
+                        />
+                      </label>
                       <div className="space-y-2">
-                        <Label text="Model" hint="Leave blank to use the backend default" />
+                        <Label
+                          text="Model override"
+                          hint={modelSettings ? `Saved model: ${modelSettings.selected_model}` : "Leave blank to use the backend default"}
+                        />
                         <input
                           value={plannerModel}
                           onChange={(event) => setPlannerModel(event.target.value)}
                           className={inputBase}
-                          placeholder="llama3.1"
+                          placeholder={modelSettings?.selected_model ?? "qwen2.5-coder:14b"}
+                          disabled={useBackendDefaultModel}
                         />
                       </div>
                       <div className="grid gap-4 md:grid-cols-2">
@@ -1292,8 +2127,21 @@ function App() {
                       </div>
                       <button
                         type="button"
-                        onClick={handlePlanner}
-                        className={cx(buttonBase, "w-full border-cyan-400/20 bg-cyan-400/15 text-cyan-50")}
+                        onClick={handleSaveModel}
+                        className={cx(buttonBase, "w-full border-red-400/20 bg-red-500/10 text-red-100")}
+                        disabled={busyAction === "save-model" || useBackendDefaultModel}
+                      >
+                        {busyAction === "save-model" ? (
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Database className="h-4 w-4" />
+                        )}
+                        Save model override
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handlePlanner()}
+                        className={cx(buttonBase, "w-full border-red-400/20 bg-red-500/15 text-red-50")}
                         disabled={busyAction === "planner"}
                       >
                         {busyAction === "planner" ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Brain className="h-4 w-4" />}
@@ -1310,7 +2158,7 @@ function App() {
                     {plannerResult ? (
                       <div className="grid gap-5">
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge className="border-cyan-400/20 bg-cyan-400/10 text-cyan-200">{plannerResult.source}</Badge>
+                          <Badge className="border-red-400/20 bg-red-400/10 text-red-200">{plannerResult.source}</Badge>
                           <Badge className="border-white/10 bg-white/5 text-slate-200">{plannerResult.model}</Badge>
                           <Badge className={stateTone(currentRun?.state ?? dashboard.state)}>
                             {titleCase(currentRun?.state ?? dashboard.state)}
@@ -1321,6 +2169,14 @@ function App() {
                           <LabeledValue label="Next step" value={plannerResult.next_allowed_step} />
                           <LabeledValue label="Recommended action" value={plannerResult.recommended_action_id ?? "None"} />
                           <LabeledValue label="Confidence" value={plannerResult.confidence} />
+                          <LabeledValue
+                            label="Likely concerns"
+                            value={plannerResult.likely_areas_of_concern.length > 0 ? plannerResult.likely_areas_of_concern.join(" / ") : "None"}
+                          />
+                          <LabeledValue
+                            label="Evidence refs"
+                            value={plannerResult.evidence_references.length > 0 ? plannerResult.evidence_references.join(" / ") : "None"}
+                          />
                         </div>
                         <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-5">
                           <div className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
@@ -1351,25 +2207,85 @@ function App() {
           ) : (
             <div className="grid min-h-[60vh] place-items-center">
               <div className={cx(panelBase, "max-w-2xl p-8 text-center")}>
-                <BrandLogo className="mx-auto mb-4 max-w-[280px] drop-shadow-[0_0_32px_rgba(248,113,113,0.5)]" />
+                <BrandLogo className="mx-auto mb-4 max-w-[280px] drop-shadow-[0_0_32px_rgba(215,0,0,0.5)]" />
                 <h2 className="text-2xl font-semibold tracking-tight text-white">Bootstrapping Pengetic</h2>
                 <p className="mt-3 text-sm leading-7 text-slate-400">
                   Loading the local API, SQLite store, and current assessment state. This console stays
                   scope-bound and approval-gated from the first page load.
                 </p>
                 <div className="mt-6 flex items-center justify-center gap-2 text-sm text-slate-400">
-                  <RefreshCw className="h-4 w-4 animate-spin text-cyan-300/80" />
+                  <RefreshCw className="h-4 w-4 animate-spin text-red-300/80" />
                   Waiting for dashboard data
                 </div>
               </div>
             </div>
           )}
 
-          <footer className="grid gap-4 border-t border-white/5 px-2 pb-4 pt-1 text-xs text-slate-500 sm:grid-cols-3">
+          <footer className="grid gap-4 border-t border-white/5 px-2 pb-4 pt-1 text-xs text-slate-500 lg:grid-cols-4">
             <div>Pengetic keeps all actions within validated scope boundaries.</div>
             <div>Active steps require an explicit approval record before execution.</div>
+            <div className="flex items-center gap-2">
+              <span>Engine pulse:</span>
+              <Badge
+                className={cx(
+                  enginePulse?.status === "ok"
+                    ? "border-red-400/20 bg-red-500/10 text-red-100"
+                    : "border-amber-400/20 bg-amber-500/10 text-amber-100",
+                )}
+              >
+                {enginePulse?.selected_model ?? modelSettings?.selected_model ?? "unknown"}
+                {enginePulse?.selected_model_available === false ? " offline" : ` ${enginePulse?.status ?? "unknown"}`}
+              </Badge>
+            </div>
             <div>LLM planning is local and constrained to the current plan context.</div>
           </footer>
+
+          {purgeOpen ? (
+            <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/80 px-4 backdrop-blur-sm">
+              <div className={cx(panelBase, "w-full max-w-2xl p-6")}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-red-300/80">
+                      Administrative purge
+                    </p>
+                    <h3 className="mt-1 text-2xl font-semibold tracking-tight text-white">Clear local Pengetic state</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">
+                      This removes the SQLite database, session data, run artifacts, and generated reports from the
+                      local workspace. It cannot be undone.
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => setPurgeOpen(false)} className={buttonBase}>
+                    Close
+                  </button>
+                </div>
+                <div className="mt-6 space-y-4">
+                  <div className="space-y-2">
+                    <Label text="Type CONFIRM_PURGE to continue" hint="Required for the reset call" />
+                    <input
+                      value={purgeConfirm}
+                      onChange={(event) => setPurgeConfirm(event.target.value)}
+                      className={inputBase}
+                      placeholder="CONFIRM_PURGE"
+                    />
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button type="button" onClick={() => setPurgeOpen(false)} className={buttonBase}>
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleWorkspacePurge()}
+                      className={cx(buttonBase, "border-red-400/20 bg-red-500/15 text-red-50")}
+                      disabled={purgeBusy || purgeConfirm.trim() !== "CONFIRM_PURGE"}
+                    >
+                      {purgeBusy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      Purge workspace
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </main>
       </div>
     </div>
@@ -1377,3 +2293,4 @@ function App() {
 }
 
 export default App;
+

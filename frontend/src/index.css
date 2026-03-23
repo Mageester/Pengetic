@@ -4,10 +4,12 @@
 
 :root {
   color-scheme: dark;
+  --pengetic-accent: #d70000;
+  --pengetic-accent-soft: rgba(215, 0, 0, 0.16);
   background:
-    radial-gradient(circle at 50% 0%, rgba(248, 113, 113, 0.12), transparent 26%),
-    radial-gradient(circle at top left, rgba(34, 211, 238, 0.16), transparent 34%),
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.16), transparent 30%),
+    radial-gradient(circle at 50% 0%, rgba(215, 0, 0, 0.14), transparent 26%),
+    radial-gradient(circle at top left, rgba(215, 0, 0, 0.08), transparent 34%),
+    radial-gradient(circle at top right, rgba(255, 110, 110, 0.08), transparent 30%),
     linear-gradient(180deg, #020617 0%, #081120 45%, #0b1220 100%);
 }
 
@@ -22,9 +24,9 @@ body {
   font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   color: #e2e8f0;
   background:
-    radial-gradient(circle at 50% 0%, rgba(248, 113, 113, 0.12), transparent 24%),
-    radial-gradient(circle at 15% 10%, rgba(34, 211, 238, 0.14), transparent 18%),
-    radial-gradient(circle at 85% 0%, rgba(59, 130, 246, 0.16), transparent 22%),
+    radial-gradient(circle at 50% 0%, rgba(215, 0, 0, 0.16), transparent 24%),
+    radial-gradient(circle at 15% 10%, rgba(215, 0, 0, 0.08), transparent 18%),
+    radial-gradient(circle at 85% 0%, rgba(255, 110, 110, 0.14), transparent 22%),
     linear-gradient(180deg, #020617 0%, #081120 48%, #0b1220 100%);
 }
 
@@ -61,6 +63,18 @@ pre {
 }
 
 ::selection {
-  background: rgba(34, 211, 238, 0.28);
+  background: rgba(215, 0, 0, 0.28);
   color: #f8fafc;
+}
+
+.pengetic-accent {
+  color: var(--pengetic-accent);
+}
+
+.pengetic-accent-bg {
+  background: var(--pengetic-accent);
+}
+
+.pengetic-accent-border {
+  border-color: rgba(215, 0, 0, 0.3);
 }

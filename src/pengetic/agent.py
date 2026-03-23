@@ -65,6 +65,13 @@ class OrchestratorSnapshot:
     actions: list[dict[str, Any]]
     findings: list[dict[str, Any]]
     artifacts: list[dict[str, Any]]
+    tool_results: list[dict[str, Any]]
+    correlated_evidence: dict[str, Any]
+    service_inventory: list[dict[str, Any]]
+    route_inventory: list[dict[str, Any]]
+    tls_posture: list[dict[str, Any]]
+    header_posture: list[dict[str, Any]]
+    model_state: dict[str, Any]
     steps: list[dict[str, Any]]
     pending_actions: list[dict[str, Any]]
     approved_actions: list[dict[str, Any]]
@@ -120,7 +127,7 @@ class AssessmentOrchestratorService:
         scope = self.store.get_scope(run["scope_id"])
         if scope is None:
             raise ValueError(f"Scope {run['scope_id']} not found.")
-        plan = self.store.get_plan(run["plan_id"]) if run.get("plan_id") else self.store.get_current_plan()
+        plan = self.store.get_plan(run["plan_id"]) if run.get("plan_id") else self.store.get_current_plan(run["scope_id"])
         if plan is None:
             raise ValueError(f"Plan for run {run_id} not found.")
 
@@ -128,6 +135,8 @@ class AssessmentOrchestratorService:
         actions = run["actions"]
         findings = run["findings"]
         artifacts = run["artifacts"]
+        tool_results = self.store.list_tool_results(run_id)
+        correlated_evidence = self.store.correlate_tool_results(run_id)
         steps = self.store.list_orchestrator_steps(run_id)
         pending_actions = [
             action
@@ -173,6 +182,17 @@ class AssessmentOrchestratorService:
             actions=actions,
             findings=findings,
             artifacts=artifacts,
+            tool_results=tool_results,
+            correlated_evidence=correlated_evidence,
+            service_inventory=correlated_evidence.get("service_inventory", []),
+            route_inventory=correlated_evidence.get("route_inventory", []),
+            tls_posture=correlated_evidence.get("tls_posture", []),
+            header_posture=correlated_evidence.get("header_posture", []),
+            model_state={
+                "selected_model": self.store.get_selected_ollama_model() or self.settings.ollama_model,
+                "backend_default_model": self.settings.ollama_model,
+                "source": "database" if self.store.get_selected_ollama_model() else "environment",
+            },
             steps=steps,
             pending_actions=pending_actions,
             approved_actions=approved_actions,
@@ -259,6 +279,8 @@ class AssessmentOrchestratorService:
                 "status": status,
                 "stop_reason": stop_reason,
                 "summary": suggestion.summary,
+                "likely_areas_of_concern": getattr(suggestion, "likely_areas_of_concern", []),
+                "evidence_references": getattr(suggestion, "evidence_references", []),
                 "next_allowed_step": suggestion.next_allowed_step,
                 "recommended_action_id": suggestion.recommended_action_id,
                 "rationale": suggestion.rationale,
@@ -327,6 +349,13 @@ class AssessmentOrchestratorService:
                     pending_actions=snapshot.pending_actions,
                     approved_actions=snapshot.approved_actions,
                     plan_actions=current_run["plan"]["actions"] if current_run.get("plan") else [],
+                    tool_results=snapshot.tool_results,
+                    correlated_evidence=snapshot.correlated_evidence,
+                    service_inventory=snapshot.service_inventory,
+                    route_inventory=snapshot.route_inventory,
+                    tls_posture=snapshot.tls_posture,
+                    header_posture=snapshot.header_posture,
+                    model_state=snapshot.model_state,
                     completed_actions=snapshot.completed_actions,
                     evidence_artifacts=snapshot.evidence_artifacts,
                     remaining_actions=snapshot.remaining_actions,

@@ -12,6 +12,7 @@ from scopeguard.findings.models import Finding
 from scopeguard.policy.plan import AssessmentAction, AssessmentPlan
 from scopeguard.scope.fingerprint import scope_fingerprint
 from scopeguard.scope.models import ScopePackage
+from scopeguard.tools.base import ToolArtifact, ToolResult
 
 
 def _now() -> str:
@@ -184,6 +185,24 @@ CREATE TABLE IF NOT EXISTS events (
     payload_json TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS tool_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    scope_id TEXT NOT NULL REFERENCES scopes(id) ON DELETE CASCADE,
+    action_id TEXT,
+    tool_id TEXT NOT NULL,
+    target TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    status TEXT NOT NULL,
+    raw_output_json TEXT NOT NULL,
+    parsed_output_json TEXT NOT NULL,
+    artifacts_json TEXT NOT NULL,
+    findings_candidates_json TEXT NOT NULL,
+    next_safe_checks_json TEXT NOT NULL,
+    metadata_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS llm_recommendations (
     id TEXT PRIMARY KEY,
     run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
@@ -218,6 +237,12 @@ CREATE TABLE IF NOT EXISTS orchestrator_steps (
     updated_at TEXT NOT NULL,
     UNIQUE(run_id, step_index)
 );
+
+CREATE INDEX IF NOT EXISTS idx_tool_results_run_id ON tool_results(run_id);
+CREATE INDEX IF NOT EXISTS idx_tool_results_scope_id ON tool_results(scope_id);
+CREATE INDEX IF NOT EXISTS idx_tool_results_tool_id ON tool_results(tool_id);
+CREATE INDEX IF NOT EXISTS idx_tool_results_target ON tool_results(target);
+CREATE INDEX IF NOT EXISTS idx_tool_results_timestamp ON tool_results(timestamp);
 """
 
 
@@ -263,6 +288,36 @@ class PengeticStore:
 
     def set_assessment_state(self, state: str | None) -> None:
         self.set_setting("assessment_state", state)
+
+    def set_selected_ollama_model(self, model: str | None) -> None:
+        self.set_setting("ollama_model", model)
+
+    def get_selected_ollama_model(self) -> str | None:
+        return self.get_setting("ollama_model")
+
+    def wipe_database(self) -> None:
+        tables = [
+            "orchestrator_steps",
+            "events",
+            "tool_results",
+            "artifacts",
+            "findings",
+            "approvals",
+            "run_actions",
+            "llm_recommendations",
+            "runs",
+            "plans",
+            "scopes",
+            "settings",
+        ]
+        with self._connect() as conn:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            for table in tables:
+                conn.execute(f"DELETE FROM {table}")
+            conn.execute("DELETE FROM sqlite_sequence")
+            conn.execute("PRAGMA foreign_keys = ON")
+        with self._connect() as conn:
+            conn.execute("VACUUM")
 
     def current_scope_id(self) -> str | None:
         return self.get_setting("current_scope_id")
@@ -423,12 +478,28 @@ class PengeticStore:
             "is_current": _bool(data["is_current"]),
         }
 
-    def get_current_plan(self) -> dict[str, Any] | None:
+    def get_current_plan(self, scope_id: str | None = None) -> dict[str, Any] | None:
+        active_scope_id = scope_id or self.current_scope_id()
         plan_id = self.current_plan_id()
         if plan_id:
-            return self.get_plan(plan_id)
+            current_plan = self.get_plan(plan_id)
+            if current_plan and (active_scope_id is None or current_plan["scope_id"] == active_scope_id):
+                return current_plan
         with self._connect() as conn:
-            row = conn.execute("SELECT id FROM plans WHERE is_current = 1 ORDER BY updated_at DESC LIMIT 1").fetchone()
+            if active_scope_id:
+                row = conn.execute(
+                    "SELECT id FROM plans WHERE is_current = 1 AND scope_id = ? ORDER BY updated_at DESC LIMIT 1",
+                    (active_scope_id,),
+                ).fetchone()
+                if row is None:
+                    row = conn.execute(
+                        "SELECT id FROM plans WHERE scope_id = ? ORDER BY updated_at DESC LIMIT 1",
+                        (active_scope_id,),
+                    ).fetchone()
+            else:
+                row = conn.execute("SELECT id FROM plans WHERE is_current = 1 ORDER BY updated_at DESC LIMIT 1").fetchone()
+                if row is None:
+                    row = conn.execute("SELECT id FROM plans ORDER BY updated_at DESC LIMIT 1").fetchone()
         return self.get_plan(row["id"]) if row else None
 
     def create_run(
@@ -497,9 +568,16 @@ class PengeticStore:
         self.set_current_run(run_id)
         return self.get_run(run_id) or {}
 
-    def list_runs(self, *, limit: int = 20) -> list[dict[str, Any]]:
+    def list_runs(self, *, limit: int = 20, scope_id: str | None = None) -> list[dict[str, Any]]:
+        active_scope_id = scope_id or self.current_scope_id()
         with self._connect() as conn:
-            rows = conn.execute("SELECT id FROM runs ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall()
+            if active_scope_id:
+                rows = conn.execute(
+                    "SELECT id FROM runs WHERE scope_id = ? ORDER BY updated_at DESC LIMIT ?",
+                    (active_scope_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT id FROM runs ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall()
         return [run for row in rows if (run := self.get_run(row["id"])) is not None]
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
@@ -943,6 +1021,186 @@ class PengeticStore:
             for row in rows
         ]
 
+    def add_tool_result(
+        self,
+        run_id: str,
+        scope_id: str,
+        result: ToolResult,
+        *,
+        action_id: str | None = None,
+    ) -> dict[str, Any]:
+        created_at = _now()
+        payload = result.to_dict()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO tool_results(
+                    run_id, scope_id, action_id, tool_id, target, timestamp, status,
+                    raw_output_json, parsed_output_json, artifacts_json, findings_candidates_json,
+                    next_safe_checks_json, metadata_json, created_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    scope_id,
+                    action_id or result.action_id,
+                    result.tool_id,
+                    result.target,
+                    result.timestamp,
+                    result.status,
+                    _dumps(payload["raw_output"]),
+                    _dumps(payload["parsed_output"]),
+                    _dumps(payload["artifacts"]),
+                    _dumps(payload["findings_candidates"]),
+                    _dumps(payload["next_safe_checks"]),
+                    _dumps(payload["metadata"]),
+                    created_at,
+                ),
+            )
+        return {
+            "id": int(cursor.lastrowid),
+            "run_id": run_id,
+            "scope_id": scope_id,
+            "action_id": action_id or result.action_id,
+            "tool_id": result.tool_id,
+            "target": result.target,
+            "timestamp": result.timestamp,
+            "status": result.status,
+            "raw_output": payload["raw_output"],
+            "parsed_output": payload["parsed_output"],
+            "artifacts": payload["artifacts"],
+            "findings_candidates": payload["findings_candidates"],
+            "next_safe_checks": payload["next_safe_checks"],
+            "metadata": payload["metadata"],
+            "created_at": created_at,
+        }
+
+    def list_tool_results(
+        self,
+        run_id: str | None = None,
+        *,
+        scope_id: str | None = None,
+        tool_id: str | None = None,
+        target: str | None = None,
+        since: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses = []
+        values: list[Any] = []
+        if run_id is not None:
+            clauses.append("run_id = ?")
+            values.append(run_id)
+        if scope_id is not None:
+            clauses.append("scope_id = ?")
+            values.append(scope_id)
+        if tool_id is not None:
+            clauses.append("tool_id = ?")
+            values.append(tool_id)
+        if target is not None:
+            clauses.append("target = ?")
+            values.append(target)
+        if since is not None:
+            clauses.append("timestamp >= ?")
+            values.append(since)
+        query = "SELECT * FROM tool_results"
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY timestamp ASC, id ASC"
+        with self._connect() as conn:
+            rows = conn.execute(query, values).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "run_id": row["run_id"],
+                "scope_id": row["scope_id"],
+                "action_id": row["action_id"],
+                "tool_id": row["tool_id"],
+                "target": row["target"],
+                "timestamp": row["timestamp"],
+                "status": row["status"],
+                "raw_output": _loads(row["raw_output_json"]) or {},
+                "parsed_output": _loads(row["parsed_output_json"]) or {},
+                "artifacts": _loads(row["artifacts_json"]) or [],
+                "findings_candidates": _loads(row["findings_candidates_json"]) or [],
+                "next_safe_checks": _loads(row["next_safe_checks_json"]) or [],
+                "metadata": _loads(row["metadata_json"]) or {},
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def correlate_tool_results(self, run_id: str) -> dict[str, Any]:
+        results = self.list_tool_results(run_id)
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in results:
+            grouped.setdefault(item["tool_id"], []).append(item)
+
+        service_inventory = [item for item in grouped.get("nmap-service-discovery", []) if item["parsed_output"].get("services")]
+        route_inventory = [item for item in grouped.get("route-inventory", []) if item["parsed_output"].get("routes")]
+        tls_posture = grouped.get("tls-review", [])
+        header_posture = grouped.get("header-review", [])
+        http_probe = grouped.get("http-probe", [])
+        dns_visibility = grouped.get("dns-visibility", [])
+
+        observations: list[str] = []
+        if service_inventory:
+            first = service_inventory[0]["parsed_output"]
+            open_ports = [f"{item.get('protocol')}/{item.get('port')}" for item in first.get("services", []) if item.get("port")]
+            observations.append(f"Nmap discovered {len(first.get('services', []))} open service(s): {', '.join(open_ports[:10])}.")
+        if http_probe:
+            first = http_probe[0]["parsed_output"]
+            if first.get("redirects"):
+                observations.append(f"HTTP probe observed {len(first['redirects'])} redirect hop(s).")
+            if first.get("title"):
+                observations.append(f"HTTP title detected: {first['title']}.")
+        if tls_posture:
+            first = tls_posture[0]["parsed_output"]
+            certificate = first.get("certificate") or {}
+            if isinstance(certificate, dict) and certificate.get("not_after"):
+                observations.append(f"TLS certificate expires on {certificate.get('not_after')}.")
+            if first.get("protocol"):
+                observations.append(f"Negotiated TLS protocol: {first['protocol']}.")
+        if header_posture:
+            first = header_posture[0]["parsed_output"]
+            missing = [key for key, value in (first.get("security_headers") or {}).items() if not value]
+            if missing:
+                observations.append(f"Missing security headers: {', '.join(missing[:5])}.")
+        if route_inventory:
+            first = route_inventory[0]["parsed_output"]
+            flagged = first.get("sensitive_markers") or []
+            if flagged:
+                observations.append(f"Potentially sensitive routes surfaced: {', '.join(flagged[:10])}.")
+        if dns_visibility:
+            first = dns_visibility[0]["parsed_output"]
+            record_summary = ", ".join(
+                f"{record_type}={len(records or [])}"
+                for record_type, records in (first.get("records") or {}).items()
+            )
+            if record_summary:
+                observations.append(f"DNS visibility summary: {record_summary}.")
+
+        evidence_refs = sorted(
+            {
+                artifact["path"]
+                for item in results
+                for artifact in item.get("artifacts", [])
+                if isinstance(artifact, dict) and artifact.get("path")
+            }
+        )
+
+        return {
+            "run_id": run_id,
+            "tool_ids": sorted(grouped),
+            "service_inventory": [item["parsed_output"] for item in service_inventory],
+            "route_inventory": [item["parsed_output"] for item in route_inventory],
+            "tls_posture": [item["parsed_output"] for item in tls_posture],
+            "header_posture": [item["parsed_output"] for item in header_posture],
+            "http_probe": [item["parsed_output"] for item in http_probe],
+            "dns_visibility": [item["parsed_output"] for item in dns_visibility],
+            "evidence_refs": evidence_refs,
+            "observations": observations,
+            "by_tool": grouped,
+        }
+
     def store_llm_recommendation(
         self,
         *,
@@ -1099,22 +1357,51 @@ class PengeticStore:
             return None
         return self.list_orchestrator_steps(run_id)[-1]
 
-    def get_latest_run(self) -> dict[str, Any] | None:
+    def get_latest_run(self, scope_id: str | None = None) -> dict[str, Any] | None:
+        active_scope_id = scope_id or self.current_scope_id()
         with self._connect() as conn:
-            row = conn.execute("SELECT id FROM runs ORDER BY created_at DESC LIMIT 1").fetchone()
+            if active_scope_id:
+                row = conn.execute(
+                    "SELECT id FROM runs WHERE scope_id = ? ORDER BY created_at DESC LIMIT 1",
+                    (active_scope_id,),
+                ).fetchone()
+            else:
+                row = conn.execute("SELECT id FROM runs ORDER BY created_at DESC LIMIT 1").fetchone()
         return self.get_run(row["id"]) if row else None
 
-    def get_dashboard_counts(self) -> dict[str, int]:
+    def get_dashboard_counts(self, scope_id: str | None = None) -> dict[str, int]:
+        active_scope_id = scope_id or self.current_scope_id()
         with self._connect() as conn:
-            total_runs = conn.execute("SELECT COUNT(*) AS count FROM runs").fetchone()["count"]
-            total_findings = conn.execute("SELECT COUNT(*) AS count FROM findings").fetchone()["count"]
-            pending_approvals = conn.execute(
-                "SELECT COUNT(*) AS count FROM run_actions "
-                "WHERE classification != 'passive-safe' AND status IN ('queued', 'pending-approval')"
-            ).fetchone()["count"]
-            approved_actions = conn.execute(
-                "SELECT COUNT(*) AS count FROM run_actions WHERE status = 'approved'"
-            ).fetchone()["count"]
+            if active_scope_id:
+                total_runs = conn.execute(
+                    "SELECT COUNT(*) AS count FROM runs WHERE scope_id = ?",
+                    (active_scope_id,),
+                ).fetchone()["count"]
+                total_findings = conn.execute(
+                    "SELECT COUNT(*) AS count FROM findings WHERE run_id IN (SELECT id FROM runs WHERE scope_id = ?)",
+                    (active_scope_id,),
+                ).fetchone()["count"]
+                pending_approvals = conn.execute(
+                    "SELECT COUNT(*) AS count FROM run_actions "
+                    "WHERE run_id IN (SELECT id FROM runs WHERE scope_id = ?) "
+                    "AND classification != 'passive-safe' AND status IN ('queued', 'pending-approval')",
+                    (active_scope_id,),
+                ).fetchone()["count"]
+                approved_actions = conn.execute(
+                    "SELECT COUNT(*) AS count FROM run_actions "
+                    "WHERE run_id IN (SELECT id FROM runs WHERE scope_id = ?) AND status = 'approved'",
+                    (active_scope_id,),
+                ).fetchone()["count"]
+            else:
+                total_runs = conn.execute("SELECT COUNT(*) AS count FROM runs").fetchone()["count"]
+                total_findings = conn.execute("SELECT COUNT(*) AS count FROM findings").fetchone()["count"]
+                pending_approvals = conn.execute(
+                    "SELECT COUNT(*) AS count FROM run_actions "
+                    "WHERE classification != 'passive-safe' AND status IN ('queued', 'pending-approval')"
+                ).fetchone()["count"]
+                approved_actions = conn.execute(
+                    "SELECT COUNT(*) AS count FROM run_actions WHERE status = 'approved'"
+                ).fetchone()["count"]
         return {
             "runs": int(total_runs),
             "findings": int(total_findings),

@@ -15,8 +15,10 @@ apis_allowed:
   - /api
   - /graphql
 tool_allowlist:
+  - http-probe
   - header-review
   - tls-review
+  - dns-visibility
   - robots-fetch
   - sitemap-fetch
   - route-inventory
@@ -36,4 +38,3 @@ authorization_note: Authorized by the site owner for defensive assessment only.
 contacts:
   - security@getaxiom.ca
 notes: Demo scope for local testing.
-

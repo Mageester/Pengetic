@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -89,23 +88,31 @@ def persist_action_outcome(
     *,
     normalized_findings: list[Any] | None = None,
 ) -> None:
+    run = store.get_run(run_id)
+    scope_id = outcome.result.scope_id if outcome.result is not None and outcome.result.scope_id else (run["scope_id"] if run else "")
     store.update_run_action(
         run_id,
         outcome.action.action_id,
         status=outcome.status,
         decision_reason=outcome.summary,
-        result=asdict(outcome.result) if outcome.result is not None else None,
+        result=outcome.result.to_dict() if outcome.result is not None else None,
         evidence_paths=outcome.evidence_paths,
         started_at=outcome.started_at.isoformat().replace("+00:00", "Z") if outcome.started_at else None,
         finished_at=outcome.finished_at.isoformat().replace("+00:00", "Z") if outcome.finished_at else None,
     )
 
     if outcome.result is not None:
-        for path in outcome.result.evidence_paths:
+        store.add_tool_result(
+            run_id,
+            scope_id,
+            outcome.result,
+            action_id=outcome.action.action_id,
+        )
+        for artifact in outcome.result.artifacts:
             store.add_artifact(
                 run_id,
-                kind="evidence",
-                path=path,
+                kind=artifact.kind,
+                path=artifact.path,
                 description=outcome.action.title,
                 action_id=outcome.action.action_id,
             )

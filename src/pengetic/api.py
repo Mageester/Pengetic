@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlparse
 from typing import Any, Callable
 import json
 import queue
@@ -12,6 +14,7 @@ import anyio
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
+import yaml
 
 from scopeguard.evidence.redaction import redact_sensitive_value
 from scopeguard.findings.models import Finding
@@ -26,7 +29,7 @@ from scopeguard.scope.models import ScopePackage
 
 from .agent import AssessmentOrchestratorService
 from .execution import persist_action_outcome, render_and_store_report
-from .llm import OllamaPlannerService, PlannerContext
+from .llm import OllamaPlannerService, OllamaPulseService, PlannerContext
 from .orchestrator import (
     ActionOutcome,
     ApprovalLookup,
@@ -37,11 +40,16 @@ from .schemas import (
     ApprovalCreateRequest,
     ApprovalView,
     ArtifactView,
+    EvidenceCorrelationView,
+    EnginePulseView,
     DashboardView,
     EventView,
     FindingView,
+    FindingCandidateView,
     LLMPlannerRequest,
     LLMPlannerResponse,
+    OllamaModelView,
+    OllamaModelUpdateRequest,
     OrchestratorDecisionView,
     OrchestratorRunRequest,
     OrchestratorRunResponse,
@@ -51,11 +59,18 @@ from .schemas import (
     RunCreateRequest,
     RunResumeRequest,
     RunView,
+    ToolArtifactView,
+    ToolResultView,
     ScopeSummary,
+    ScopeTemplateRequest,
+    ScopeTemplateResponse,
     ScopeUploadResponse,
+    WorkspacePurgeRequest,
+    WorkspacePurgeResponse,
 )
 from .settings import AppSettings, load_settings
 from .state import AssessmentState
+from .workspace import WorkspaceReset
 from .storage import PengeticStore
 
 
@@ -89,6 +104,98 @@ class RunEventHub:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _root_url(value: str) -> str:
+    parsed = urlparse(value if "://" in value else f"https://{value}")
+    host = parsed.hostname or value
+    scheme = parsed.scheme or "https"
+    return f"{scheme}://{host.rstrip('/')}/"
+
+
+def _template_tool_allowlist(template_id: str) -> list[str]:
+    passive = [
+        "http-probe",
+        "header-review",
+        "tls-review",
+        "dns-visibility",
+        "robots-fetch",
+        "sitemap-fetch",
+        "route-inventory",
+        "tech-fingerprint",
+        "manual-review",
+    ]
+    if template_id == "internal-audit":
+        return [*passive, "nmap-service-discovery", "approved-login-surface-probe", "approved-api-surface-probe"]
+    if template_id == "api-surface-mapping":
+        return [*passive, "nmap-service-discovery", "approved-api-surface-probe"]
+    return [*passive, "nmap-service-discovery"]
+
+
+def _generate_template_scope(request: ScopeTemplateRequest) -> tuple[ScopePackage, str]:
+    target = _root_url(request.target_url)
+    parsed = urlparse(target)
+    host = parsed.hostname
+    if host is None:
+        raise HTTPException(status_code=400, detail="Target URL must include a host.")
+
+    template_name = {
+        "internal-audit": "Internal Audit",
+        "web-surface-mapping": "Web Surface Mapping",
+        "api-surface-mapping": "API Surface Mapping",
+    }.get(request.template_id, request.scope_name or "Generated Assessment")
+
+    allowed_subdomains = sorted(
+        {
+            *{sub.strip().lower() for sub in request.allowed_subdomains if sub.strip()},
+            f"www.{host}",
+            f"app.{host}",
+        }
+    )
+    if request.template_id == "api-surface-mapping":
+        allowed_subdomains = sorted({*allowed_subdomains, f"api.{host}"})
+
+    allowed_urls = [target]
+    if request.login_areas_allowed:
+        allowed_urls.extend(
+            _root_url(f"{parsed.scheme}://{host}{route if route.startswith('/') else '/' + route}")
+            if route.startswith("http://") or route.startswith("https://")
+            else f"{target.rstrip('/')}{route if route.startswith('/') else '/' + route}"
+            for route in request.login_areas_allowed
+        )
+    if request.apis_allowed:
+        allowed_urls.extend(
+            route if route.startswith("http://") or route.startswith("https://") else f"{target.rstrip('/')}{route if route.startswith('/') else '/' + route}"
+            for route in request.apis_allowed
+        )
+
+    scope_data = {
+        "version": 1,
+        "name": request.scope_name or template_name,
+        "primary_domain": host,
+        "base_url": target,
+        "allowed_subdomains": allowed_subdomains,
+        "allowed_urls": list(dict.fromkeys(allowed_urls)),
+        "out_of_scope_assets": [],
+        "login_areas_allowed": request.login_areas_allowed or ["/login"],
+        "apis_allowed": request.apis_allowed or (["/api"] if request.template_id != "web-surface-mapping" else []),
+        "tool_allowlist": request.tool_allowlist or _template_tool_allowlist(request.template_id),
+        "rate_limits": {
+            "max_requests_per_minute": 60,
+            "max_concurrent_requests": 2,
+            "delay_seconds_between_requests": 0.5,
+        },
+        "testing_window": {
+            "start": _now(),
+            "end": None,
+        },
+        "authorization_note": request.authorization_note,
+        "contacts": request.contacts,
+        "notes": request.notes,
+    }
+    scope = ScopePackage.model_validate(scope_data)
+    generated_yaml = yaml.safe_dump(scope.model_dump(mode="json"), sort_keys=False)
+    return scope, generated_yaml
 
 
 def _frontend_fallback_response() -> HTMLResponse:
@@ -223,6 +330,25 @@ def _artifact_view(artifact: dict[str, Any]) -> ArtifactView:
     return ArtifactView.model_validate(artifact)
 
 
+def _tool_artifact_view(artifact: dict[str, Any]) -> ToolArtifactView:
+    return ToolArtifactView.model_validate(artifact)
+
+
+def _finding_candidate_view(candidate: dict[str, Any]) -> FindingCandidateView:
+    return FindingCandidateView.model_validate(candidate)
+
+
+def _tool_result_view(result: dict[str, Any]) -> ToolResultView:
+    payload = dict(result)
+    payload["artifacts"] = [_tool_artifact_view(item) for item in result.get("artifacts", [])]
+    payload["findings_candidates"] = [_finding_candidate_view(item) for item in result.get("findings_candidates", [])]
+    return ToolResultView.model_validate(payload)
+
+
+def _evidence_correlation_view(correlation: dict[str, Any]) -> EvidenceCorrelationView:
+    return EvidenceCorrelationView.model_validate(correlation)
+
+
 def _approval_view(approval: dict[str, Any]) -> ApprovalView:
     return ApprovalView.model_validate(approval)
 
@@ -309,11 +435,12 @@ def _run_summary_from_db(store: PengeticStore, run_id: str) -> SimpleNamespace:
 
 
 def _render_dashboard(store: PengeticStore) -> DashboardView:
+    current_scope_id = store.current_scope_id()
     current_scope = _scope_view(store.get_current_scope())
-    current_plan = _plan_view(store.get_current_plan())
-    latest_run = store.get_latest_run()
-    latest_run_view = _run_view(latest_run) if latest_run else None
-    recent_runs = [_run_view(run) for run in store.list_runs(limit=5)]
+    current_plan = _plan_view(store.get_current_plan(current_scope_id))
+    latest_run = store.get_latest_run(current_scope_id)
+    latest_run_view = _run_view(latest_run, store) if latest_run else None
+    recent_runs = [_run_view(run, store) for run in store.list_runs(limit=5, scope_id=current_scope_id)]
     pending = [_run_action_view(action) for action in store.list_pending_approvals(latest_run["id"])] if latest_run else []
     recent_findings = [_finding_view(item) for item in (latest_run["findings"] if latest_run else [])[:5]]
     state = store.current_state() or (latest_run["state"] if latest_run else AssessmentState.idle.value)
@@ -321,7 +448,7 @@ def _render_dashboard(store: PengeticStore) -> DashboardView:
         current_scope=current_scope,
         current_plan=current_plan,
         latest_run=latest_run_view,
-        counts=store.get_dashboard_counts(),
+        counts=store.get_dashboard_counts(current_scope_id),
         pending_approvals=pending,
         recent_findings=recent_findings,
         recent_runs=recent_runs,
@@ -329,9 +456,11 @@ def _render_dashboard(store: PengeticStore) -> DashboardView:
     )
 
 
-def _run_view(run: dict[str, Any] | None) -> RunView:
+def _run_view(run: dict[str, Any] | None, store: PengeticStore | None = None) -> RunView:
     if run is None:
         raise ValueError("Run data is required.")
+    tool_results = store.list_tool_results(run["id"]) if store is not None else []
+    correlation = store.correlate_tool_results(run["id"]) if store is not None else None
     return RunView.model_validate(
         {
             "id": run["id"],
@@ -353,6 +482,8 @@ def _run_view(run: dict[str, Any] | None) -> RunView:
             "actions": [_run_action_view(item) for item in run["actions"]],
             "findings": [_finding_view(item) for item in run["findings"]],
             "artifacts": [_artifact_view(item) for item in run["artifacts"]],
+            "tool_results": [_tool_result_view(item) for item in tool_results],
+            "evidence_correlation": _evidence_correlation_view(correlation) if correlation is not None else None,
             "approvals": [_approval_view(item) for item in run["approvals"]],
             "events": [_event_view(item) for item in run["events"]],
         }
@@ -363,6 +494,10 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     app_settings = settings or load_settings()
     store = PengeticStore(app_settings.paths.db_path)
     store.initialize()
+    backend_default_model = app_settings.ollama_model
+    persisted_model = store.get_selected_ollama_model()
+    if persisted_model:
+        app_settings = replace(app_settings, ollama_model=persisted_model)
     hub = RunEventHub()
     app = FastAPI(
         title="Pengetic",
@@ -377,6 +512,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     app.state.settings = app_settings
+    app.state.backend_default_model = backend_default_model
     app.state.store = store
     app.state.hub = hub
 
@@ -576,18 +712,78 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
 
     @app.get("/api/plans/current", response_model=PlanView | None)
     def current_plan() -> PlanView | None:
-        return _plan_view(store.get_current_plan())
+        return _plan_view(store.get_current_plan(store.current_scope_id()))
+
+    @app.get("/api/llm/model", response_model=OllamaModelView)
+    def get_ollama_model() -> OllamaModelView:
+        return OllamaModelView.model_validate(
+            {
+                "selected_model": app_settings.ollama_model,
+                "backend_default_model": app.state.backend_default_model,
+                "source": "database" if store.get_selected_ollama_model() else "environment",
+                "updated_at": _now(),
+            }
+        )
+
+    @app.post("/api/llm/model", response_model=OllamaModelView)
+    def set_ollama_model(request: OllamaModelUpdateRequest) -> OllamaModelView:
+        nonlocal app_settings
+        model = request.model.strip()
+        if not model:
+            raise HTTPException(status_code=400, detail="model is required.")
+        store.set_selected_ollama_model(model)
+        app_settings = replace(app_settings, ollama_model=model)
+        app.state.settings = app_settings
+        return OllamaModelView.model_validate(
+            {
+                "selected_model": model,
+                "backend_default_model": app.state.backend_default_model,
+                "source": "database",
+                "updated_at": _now(),
+            }
+        )
+
+    @app.get("/api/engine/pulse", response_model=EnginePulseView)
+    async def engine_pulse() -> EnginePulseView:
+        service = OllamaPulseService(base_url=app_settings.ollama_base_url)
+        pulse = await service.pulse(selected_model=app_settings.ollama_model)
+        return EnginePulseView.model_validate(pulse)
+
+    @app.post("/api/scopes/templates/generate", response_model=ScopeTemplateResponse)
+    def generate_scope_template(request: ScopeTemplateRequest) -> ScopeTemplateResponse:
+        scope, generated_yaml = _generate_template_scope(request)
+        saved_path = app_settings.paths.scopes_dir / f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{request.template_id}.yaml"
+        saved_path.parent.mkdir(parents=True, exist_ok=True)
+        saved_path.write_text(generated_yaml, encoding="utf-8")
+        stored_scope = store.upsert_scope(scope, raw_yaml=generated_yaml, source_path=str(saved_path))
+        coordinator = AssessmentRunCoordinator(
+            scope,
+            profile=request.profile,
+            artifacts_root=app_settings.paths.artifacts_dir,
+        )
+        plan = coordinator.build_plan()
+        stored_plan = store.save_plan(scope, request.profile, plan, activate=request.activate)
+        store.set_assessment_state(AssessmentState.plan_ready.value)
+        return ScopeTemplateResponse.model_validate(
+            {
+                "template_id": request.template_id,
+                "generated_yaml": generated_yaml,
+                "scope": _scope_view(stored_scope),
+                "plan": _plan_view(stored_plan),
+                "validation_message": f"Template {request.template_id} generated and validated for {scope.name}.",
+            }
+        )
 
     @app.get("/api/runs", response_model=list[RunView])
-    def list_runs(limit: int = 20) -> list[RunView]:
-        return [_run_view(run) for run in store.list_runs(limit=limit)]
+    def list_runs(limit: int = 20, scope_id: str | None = None) -> list[RunView]:
+        return [_run_view(run, store) for run in store.list_runs(limit=limit, scope_id=scope_id)]
 
     @app.get("/api/runs/{run_id}", response_model=RunView)
     def get_run(run_id: str) -> RunView:
         run = store.get_run(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="Run not found.")
-        return _run_view(run)
+        return _run_view(run, store)
 
     @app.get("/api/runs/{run_id}/actions", response_model=list[RunActionView])
     def get_run_actions(run_id: str) -> list[RunActionView]:
@@ -613,6 +809,58 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         if store.get_run(run_id) is None:
             raise HTTPException(status_code=404, detail="Run not found.")
         return [_artifact_view(artifact) for artifact in store.list_artifacts(run_id)]
+
+    @app.get("/api/runs/{run_id}/tool-results", response_model=list[ToolResultView])
+    def get_run_tool_results(run_id: str, tool_id: str | None = None) -> list[ToolResultView]:
+        if store.get_run(run_id) is None:
+            raise HTTPException(status_code=404, detail="Run not found.")
+        results = store.list_tool_results(run_id, tool_id=tool_id)
+        return [_tool_result_view(result) for result in results]
+
+    @app.get("/api/runs/{run_id}/evidence-correlation", response_model=EvidenceCorrelationView)
+    def get_run_evidence_correlation(run_id: str) -> EvidenceCorrelationView:
+        if store.get_run(run_id) is None:
+            raise HTTPException(status_code=404, detail="Run not found.")
+        return _evidence_correlation_view(store.correlate_tool_results(run_id))
+
+    @app.get("/api/runs/{run_id}/service-inventory", response_model=list[dict[str, Any]])
+    def get_run_service_inventory(run_id: str) -> list[dict[str, Any]]:
+        if store.get_run(run_id) is None:
+            raise HTTPException(status_code=404, detail="Run not found.")
+        return store.correlate_tool_results(run_id)["service_inventory"]
+
+    @app.get("/api/runs/{run_id}/route-inventory", response_model=list[dict[str, Any]])
+    def get_run_route_inventory(run_id: str) -> list[dict[str, Any]]:
+        if store.get_run(run_id) is None:
+            raise HTTPException(status_code=404, detail="Run not found.")
+        return store.correlate_tool_results(run_id)["route_inventory"]
+
+    @app.get("/api/runs/{run_id}/tls-summary", response_model=list[dict[str, Any]])
+    def get_run_tls_summary(run_id: str) -> list[dict[str, Any]]:
+        if store.get_run(run_id) is None:
+            raise HTTPException(status_code=404, detail="Run not found.")
+        return store.correlate_tool_results(run_id)["tls_posture"]
+
+    @app.get("/api/runs/{run_id}/header-summary", response_model=list[dict[str, Any]])
+    def get_run_header_summary(run_id: str) -> list[dict[str, Any]]:
+        if store.get_run(run_id) is None:
+            raise HTTPException(status_code=404, detail="Run not found.")
+        return store.correlate_tool_results(run_id)["header_posture"]
+
+    @app.get("/api/runs/{run_id}/planner-evidence-context", response_model=dict[str, Any])
+    def get_run_planner_evidence_context(run_id: str) -> dict[str, Any]:
+        run = store.get_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found.")
+        return {
+            "run_id": run_id,
+            "scope_id": run["scope_id"],
+            "scope_name": run["scope_name"],
+            "current_model": store.get_selected_ollama_model() or app.state.settings.ollama_model,
+            "current_state": store.current_state() or run["state"],
+            "correlation": store.correlate_tool_results(run_id),
+            "tool_results": store.list_tool_results(run_id),
+        }
 
     @app.get("/api/runs/{run_id}/events", response_model=list[EventView])
     def get_run_events(run_id: str, after_id: int | None = None) -> list[EventView]:
@@ -653,7 +901,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             artifacts_root=app_settings.paths.artifacts_dir,
             manual_notes=request.manual_notes,
         )
-        current_plan = store.get_current_plan()
+        current_plan = store.get_current_plan(scope_row["id"])
         if current_plan is None or current_plan["scope_id"] != scope_row["id"] or current_plan["profile"] != request.profile:
             plan = coordinator.build_plan()
             store.save_plan(scope, request.profile, plan, activate=True)
@@ -662,7 +910,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         run_record = store.create_run(scope, plan, profile=request.profile, manual_notes=request.manual_notes)
         store.set_assessment_state(AssessmentState.running.value)
         launch_worker(run_id=run_record["id"], include_approved_active=request.include_approved_active, resume=False)
-        return _run_view(run_record)
+        return _run_view(run_record, store)
 
     @app.post("/api/runs/{run_id}/resume", response_model=RunView, status_code=202)
     def resume_run(run_id: str, request: RunResumeRequest) -> RunView:
@@ -682,7 +930,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
         refreshed = store.get_run(run_id)
         if refreshed is None:
             raise HTTPException(status_code=404, detail="Run not found.")
-        return _run_view(refreshed)
+        return _run_view(refreshed, store)
 
     @app.post("/api/approvals", response_model=ApprovalView)
     def approve_action(request: ApprovalCreateRequest) -> ApprovalView:
@@ -740,6 +988,25 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Report file not found.")
         return FileResponse(report_path, media_type="text/markdown", filename=f"pengetic-{run_id}.md")
 
+    def _perform_workspace_purge(request: WorkspacePurgeRequest) -> WorkspacePurgeResponse:
+        nonlocal app_settings
+        reset = WorkspaceReset(store=store, settings=app_settings)
+        try:
+            outcome = reset.purge_all(confirmation=request.confirmation)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        app_settings = replace(app_settings, ollama_model=backend_default_model)
+        app.state.settings = app_settings
+        return WorkspacePurgeResponse.model_validate(outcome)
+
+    @app.post("/api/system/purge-all", response_model=WorkspacePurgeResponse)
+    def purge_all(request: WorkspacePurgeRequest) -> WorkspacePurgeResponse:
+        return _perform_workspace_purge(request)
+
+    @app.post("/api/system/factory-reset", response_model=WorkspacePurgeResponse)
+    def factory_reset(request: WorkspacePurgeRequest) -> WorkspacePurgeResponse:
+        return _perform_workspace_purge(request)
+
     @app.post("/api/llm/planner", response_model=LLMPlannerResponse)
     async def llm_planner(request: LLMPlannerRequest) -> LLMPlannerResponse:
         run = store.get_run(request.run_id) if request.run_id else store.get_latest_run()
@@ -748,12 +1015,37 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="No scope is available.")
         if run is None and request.run_id is not None:
             raise HTTPException(status_code=404, detail="Run not found.")
-        plan = _plan_view(run["plan"]) if run and run.get("plan") else _plan_view(store.get_current_plan())
+        plan = _plan_view(run["plan"]) if run and run.get("plan") else _plan_view(store.get_current_plan(store.current_scope_id()))
         if plan is None:
             raise HTTPException(status_code=404, detail="No plan is available.")
         findings = run["findings"] if run else []
+        tool_results = store.list_tool_results(run["id"]) if run else []
+        correlation = store.correlate_tool_results(run["id"]) if run else {
+            "run_id": None,
+            "tool_ids": [],
+            "service_inventory": [],
+            "route_inventory": [],
+            "tls_posture": [],
+            "header_posture": [],
+            "http_probe": [],
+            "dns_visibility": [],
+            "evidence_refs": [],
+            "observations": [],
+            "by_tool": {},
+        }
         pending_actions = [action for action in (run["actions"] if run else []) if action["status"] == "pending-approval"]
         approved_actions = [action for action in (run["actions"] if run else []) if action["status"] == "approved"]
+        completed_actions = [
+            action
+            for action in (run["actions"] if run else [])
+            if action["status"] in {"executed", "skipped", "blocked"}
+        ]
+        evidence_artifacts = [artifact for artifact in (run["artifacts"] if run else []) if artifact["kind"] == "evidence"]
+        remaining_actions = [
+            action.model_dump(mode="json")
+            for action in plan.actions
+            if action.action_id not in {item["action_id"] for item in completed_actions}
+        ]
         latest_summary = json.dumps(run["summary_json"], ensure_ascii=False, default=str) if run else None
         context = PlannerContext(
             scope_name=scope["name"],
@@ -765,6 +1057,21 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
             pending_actions=pending_actions,
             approved_actions=approved_actions,
             plan_actions=[action.model_dump(mode="json") for action in plan.actions],
+            tool_results=tool_results,
+            correlated_evidence=correlation,
+            service_inventory=correlation.get("service_inventory", []),
+            route_inventory=correlation.get("route_inventory", []),
+            tls_posture=correlation.get("tls_posture", []),
+            header_posture=correlation.get("header_posture", []),
+            model_state={
+                "selected_model": store.get_selected_ollama_model() or app_settings.ollama_model,
+                "backend_default_model": app.state.backend_default_model,
+                "source": "database" if store.get_selected_ollama_model() else "environment",
+            },
+            completed_actions=completed_actions,
+            evidence_artifacts=evidence_artifacts,
+            remaining_actions=remaining_actions,
+            rate_limit_snapshot={"current_scope_id": store.current_scope_id()},
             latest_run_summary=latest_summary,
         )
         service = OllamaPlannerService(base_url=app_settings.ollama_base_url, model=request.model or app_settings.ollama_model)

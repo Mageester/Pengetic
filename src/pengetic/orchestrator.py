@@ -207,7 +207,7 @@ class AssessmentRunCoordinator:
         tool = self.registry.get(action.tool_id)
         if emit is not None:
             emit("execution_start", f"Executing {tool.title}.", action=action)
-        result = tool.executor(action, context)
+        result = tool.execute(action, context)
         normalized_findings = normalize_findings(result.findings, source_action_id=action.action_id)
         audit.log(
             "execution",

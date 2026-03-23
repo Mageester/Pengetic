@@ -256,6 +256,12 @@ def test_v2_api_supports_scope_run_approval_resume_and_reporting(tmp_path: Path,
             run_id,
             lambda payload: payload["state"] == "awaiting_approval" and payload["report_path"],
         )
+        assert isinstance(first_run["tool_results"], list)
+        assert first_run["tool_results"]
+        assert first_run["tool_results"][0]["tool_id"] == "http-probe"
+        assert first_run["evidence_correlation"]["run_id"] == run_id
+        assert "tool_ids" in first_run["evidence_correlation"]
+        assert "http-probe" in first_run["evidence_correlation"]["tool_ids"]
         assert any(action["status"] == "executed" for action in first_run["actions"])
         assert any(action["status"] == "pending-approval" for action in first_run["actions"])
         assert first_run["findings"]

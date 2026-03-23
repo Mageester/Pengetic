@@ -12,15 +12,23 @@ def active_validation_stub(action: Any, context: ExecutionContext) -> ToolResult
         tool_id=action.tool_id,
         action_id=action.action_id,
         target=action.target,
-        summary="Active validation is registered but not executed automatically in this build.",
-        details={
-            "note": "This is a safe stub to preserve the approval gate and keep the framework non-destructive by default.",
+        run_id=context.run_id,
+        scope_id=context.scope_fingerprint,
+        status="skipped",
+        raw_output={"note": "Active validation is registered but not executed automatically in this build."},
+        parsed_output={
             "classification": action.classification.value,
+            "note": "This is a safe stub to preserve the approval gate and keep the framework non-destructive by default.",
         },
-        evidence_paths=[],
-        findings=[],
+        artifacts=[],
+        findings_candidates=[],
+        next_safe_checks=["Wait for explicit operator approval before executing any active validation step."],
+        metadata={
+            "summary": "Active validation is registered but not executed automatically in this build.",
+            "started_at": started.isoformat().replace("+00:00", "Z"),
+            "finished_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        },
         started_at=started,
         finished_at=datetime.now(UTC),
         success=False,
     )
-

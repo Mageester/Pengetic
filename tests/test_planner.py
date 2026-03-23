@@ -13,11 +13,13 @@ def test_planner_builds_expected_actions() -> None:
     plan = AssessmentPlanner(default_tool_registry()).build(scope, RuntimeProfile.passive_only)
     action_ids = [action.action_id for action in plan.actions]
 
-    assert action_ids[:3] == [
+    assert action_ids[:4] == [
+        "passive-http-probe",
         "passive-header-review",
         "passive-tls-review",
-        "passive-robots-fetch",
+        "passive-dns-visibility",
     ]
+    assert "passive-robots-fetch" in action_ids
     assert "passive-tech-fingerprint" in action_ids
     assert "active-login-surface-probe" in action_ids
     assert "active-api-surface-probe" in action_ids
@@ -26,4 +28,3 @@ def test_planner_builds_expected_actions() -> None:
     passive = plan.get_action("passive-header-review")
     assert passive.allowed_by_scope is True
     assert passive.classification.value == "PASSIVE_SAFE"
-

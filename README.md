@@ -13,6 +13,7 @@ It is built to stay closed by default:
 - no destructive testing
 - no brute force, credential attacks, persistence, or evasion
 - no unrestricted shell access for the LLM
+- no active diagnostic action without operator approval
 
 ## What Pengetic Does
 
@@ -21,7 +22,13 @@ It is built to stay closed by default:
 - Executes passive-safe checks automatically.
 - Queues active checks for explicit approval.
 - Persists runs, approvals, findings, logs, artifacts, and reports in SQLite.
+- Persists the selected Ollama model locally so the preferred planner survives reloads.
+- Shows an Engine Pulse status from the Ollama Tags API in the GUI footer.
 - Renders a dark security-operations GUI for reviewing scope, plans, live runs, approvals, and reports.
+- Includes a scope template wizard for one-click YAML generation from validated inputs.
+- Includes structured tool intelligence with normalized results, persisted artifacts, and cross-tool evidence correlation.
+- Includes scoped HTTP, header, TLS, DNS, route, technology-fingerprint, and Nmap diagnostic modules.
+- Provides a confirmation-gated workspace purge for local administrative resets.
 - Uses a local Ollama service to summarize assessment state and propose the next allowed step.
 
 ## Architecture
@@ -30,8 +37,8 @@ Pengetic is split into these layers:
 
 1. Scope validation and policy gating.
 2. Assessment planning and approval handling.
-3. Passive tool execution and evidence capture.
-4. SQLite persistence and run state tracking.
+3. Normalized diagnostic tools and evidence capture.
+4. SQLite persistence, correlation, and run state tracking.
 5. FastAPI API and React GUI.
 6. Optional local LLM planning through Ollama.
 
@@ -104,13 +111,16 @@ login_areas_allowed:
 apis_allowed:
   - /api
 tool_allowlist:
+  - http-probe
   - header-review
   - tls-review
+  - dns-visibility
   - robots-fetch
   - sitemap-fetch
   - route-inventory
   - tech-fingerprint
   - manual-review
+  - nmap-service-discovery
 rate_limits:
   max_requests_per_minute: 60
   max_concurrent_requests: 2
@@ -123,6 +133,50 @@ contacts:
   - security@example.com
 notes: Demo scope for local testing.
 ```
+
+## Structured Tool Intelligence
+
+Every diagnostic module returns a normalized result with:
+
+- `tool_id`
+- `target`
+- `run_id`
+- `scope_id`
+- `timestamp`
+- `status`
+- `raw_output`
+- `parsed_output`
+- `artifacts`
+- `findings_candidates`
+- `next_safe_checks`
+- `metadata`
+
+Pengetic stores the raw artifacts and parsed summaries in SQLite so the planner can reason over structured evidence instead of guessing from text blobs. The correlation layer combines observations across tools into a single evidence picture for the active run.
+
+The planner can ingest:
+
+- service inventory
+- route inventory
+- TLS posture
+- security header posture
+- DNS visibility
+- evidence correlation summaries
+
+Supported tools currently include:
+
+- `http-probe`
+- `header-review`
+- `tls-review`
+- `dns-visibility`
+- `robots-fetch`
+- `sitemap-fetch`
+- `route-inventory`
+- `tech-fingerprint`
+- `manual-review`
+- `nmap-service-discovery`
+- `approved-login-surface-probe`
+- `approved-api-surface-probe`
+- `approved-rate-limit-probe`
 
 ## Getting Started
 
@@ -167,6 +221,18 @@ Use the Vite dev server only for frontend development. It proxies API calls to `
 
 If `frontend/dist` is missing, `pengetic serve` will show a clear setup page instead of a blank UI. Asset routes such as `/assets/*.js` are served as static files only and never fall back to `index.html`.
 
+### Fresh-user setup
+
+For a clean install from the GitHub source ZIP:
+
+1. Create and activate a Python virtual environment.
+2. Install the backend with `pip install -e .`.
+3. Install frontend dependencies with `cd frontend && npm install`.
+4. Build the production UI with `cd frontend && npm run build`.
+5. Start the combined backend and UI with `python -m pengetic serve`.
+
+If you skip the frontend build, Pengetic still starts, but it shows a setup page instead of the production dashboard.
+
 ## CLI
 
 ```bash
@@ -186,10 +252,25 @@ The web UI is organized into seven views:
 1. Assessment dashboard
 2. Scope upload and validation
 3. Plan viewer with risk labels
-4. Live run view with logs, evidence, and findings
+4. Live run view with logs, structured evidence, service inventory, and findings
 5. Approval queue for gated actions
 6. Report viewer and export
-7. Planner panel for the Ollama-backed suggestion service
+7. Planner panel for the Ollama-backed suggestion service and next-safe-step guidance
+
+The dashboard follows the operational flow:
+
+1. Scope Definition
+2. Automated Discovery
+3. State Analysis
+4. Evidence Aggregation
+5. Reporting
+
+Additional operator controls include:
+
+- one-click scope template generation
+- model selection and backend-default toggling
+- Engine Pulse health status
+- workspace purge with typed confirmation
 
 ## Persistence
 
@@ -205,6 +286,41 @@ It also stores run artifacts and reports under:
 artifacts/runs/
 ```
 
+The selected Ollama model is also stored in SQLite so the preferred local planner persists across restarts.
+
+## Nmap Adapter
+
+Pengetic includes a scope-bound Nmap diagnostic module for authorized targets only.
+
+It:
+
+- runs only when `nmap-service-discovery` is present in the scope tool allowlist
+- captures raw XML, normal, and grepable output
+- stores scan evidence as artifacts
+- extracts open ports and service/version data for review
+- persists parsed service inventory for planner analysis
+- suggests safe next steps such as SSL configuration checks or service header review
+
+Active diagnostic actions always remain approval-gated.
+
+## Engine Pulse
+
+The footer shows an Engine Pulse indicator that checks the selected Ollama model through the Ollama Tags API.
+
+If the model is unavailable, the UI shows the last known status and the model health indicator turns to a warning state.
+
+## Workspace Reset
+
+Pengetic provides an administrative reset flow for local operators.
+
+The reset:
+
+- requires the exact confirmation string `CONFIRM_PURGE`
+- clears SQLite content
+- removes generated artifacts and logs
+- resets scope, plan, run, and planner state
+- restores the backend to a clean workspace state
+
 ## LLM Planner
 
 Pengetic talks to a local Ollama instance through the OpenAI-compatible `/v1/chat/completions` API.
@@ -213,6 +329,8 @@ Environment variables:
 
 - `OLLAMA_BASE_URL`
 - `OLLAMA_MODEL`
+
+The selected model can also be changed from the Pengetic GUI and is persisted locally.
 
 The planner is constrained to:
 

@@ -180,6 +180,38 @@ Supported tools currently include:
 
 ## Getting Started
 
+### Fresh install from the GitHub source ZIP
+
+1. Extract the release source ZIP.
+2. Open a terminal in the Pengetic root directory.
+3. Run the installer for your platform:
+
+```bash
+# Windows
+powershell -ExecutionPolicy Bypass -File .\scripts\install_windows.ps1
+
+# Linux
+bash ./scripts/install_linux.sh
+```
+
+The installers will:
+
+- verify Python, pip, Node, and npm
+- create `.venv`
+- install the backend in editable mode
+- install frontend dependencies
+- build the production UI
+- initialize the local workspace and SQLite database
+- run `python -m pengetic doctor`
+- optionally check Ollama if you pass the flag
+
+Optional flags:
+
+- `powershell -ExecutionPolicy Bypass -File .\scripts\install_windows.ps1 -CheckOllama`
+- `powershell -ExecutionPolicy Bypass -File .\scripts\install_windows.ps1 -Launch -OpenBrowser`
+- `bash ./scripts/install_linux.sh`
+- `bash ./scripts/run_pengetic.sh`
+
 ### 1. Install the backend
 
 ```bash
@@ -210,6 +242,8 @@ pengetic serve
 python -m pengetic serve
 ```
 
+Use `python -m pengetic doctor` to verify the local install, workspace, frontend build, database, and optional Ollama health.
+
 ### 5. Start the GUI in development mode
 
 ```bash
@@ -220,6 +254,20 @@ npm run dev
 Use the Vite dev server only for frontend development. It proxies API calls to `http://127.0.0.1:8000`.
 
 If `frontend/dist` is missing, `pengetic serve` will show a clear setup page instead of a blank UI. Asset routes such as `/assets/*.js` are served as static files only and never fall back to `index.html`.
+
+### Launch wrappers
+
+For a quick launch after install:
+
+```bash
+# Windows
+pwsh -File .\scripts\run_pengetic.ps1 -OpenBrowser
+
+# Linux
+bash ./scripts/run_pengetic.sh
+```
+
+These wrappers prefer the local virtual environment if it exists and fall back to the system Python otherwise.
 
 ### Fresh-user setup
 
@@ -232,6 +280,27 @@ For a clean install from the GitHub source ZIP:
 5. Start the combined backend and UI with `python -m pengetic serve`.
 
 If you skip the frontend build, Pengetic still starts, but it shows a setup page instead of the production dashboard.
+
+## Installer and Doctor
+
+Pengetic now ships with guided bootstrap scripts and a doctor command so first-time setup is repeatable:
+
+- `scripts/install_windows.ps1`
+- `scripts/install_linux.sh`
+- `scripts/run_pengetic.ps1`
+- `scripts/run_pengetic.sh`
+- `python -m pengetic doctor`
+
+`doctor` reports:
+
+- Python and pip
+- Node and npm
+- Git and Ollama availability
+- frontend build status
+- workspace and SQLite readiness
+- selected Ollama model and health state
+
+The command exits non-zero when required dependencies or build outputs are missing, which makes it useful in automation.
 
 ## CLI
 
@@ -345,6 +414,26 @@ The planner is constrained to:
 - It does not brute force, flood, or persist.
 - It only operates on assets explicitly listed in scope.
 - It stops when scope validation fails or the required approval is missing.
+
+## Troubleshooting
+
+- Blank UI: run `cd frontend && npm install && npm run build`, then restart `python -m pengetic serve`.
+- Missing Node/npm: install Node.js 18+ and make sure `node` and `npm` are on `PATH`.
+- Missing Python deps: create a virtual environment and run `pip install -e .`.
+- Frontend not built: check that `frontend/dist/index.html` and `frontend/dist/assets/*.js` exist after the build.
+- Ollama not reachable: confirm `OLLAMA_BASE_URL` is correct and that Ollama is running locally.
+- Model not found: verify the selected model name with `ollama list` or check the model in the Pengetic GUI.
+
+## Release Checklist
+
+- Fresh install from a source ZIP works.
+- `python -m pengetic doctor` passes.
+- `python -m pytest -q` passes.
+- `cd frontend && npm run build` passes.
+- `python -m pengetic serve` loads the real UI.
+- Static assets return the correct MIME type.
+- The selected Ollama model and workspace paths are correct.
+- Install and launch wrappers are included in the release archive.
 
 ## Documentation
 

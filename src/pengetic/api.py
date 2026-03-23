@@ -70,6 +70,7 @@ from .schemas import (
 )
 from .settings import AppSettings, load_settings
 from .state import AssessmentState
+from .workspace import ensure_workspace
 from .workspace import WorkspaceReset
 from .storage import PengeticStore
 
@@ -492,8 +493,8 @@ def _run_view(run: dict[str, Any] | None, store: PengeticStore | None = None) ->
 
 def create_app(settings: AppSettings | None = None) -> FastAPI:
     app_settings = settings or load_settings()
+    ensure_workspace(app_settings)
     store = PengeticStore(app_settings.paths.db_path)
-    store.initialize()
     backend_default_model = app_settings.ollama_model
     persisted_model = store.get_selected_ollama_model()
     if persisted_model:
@@ -501,7 +502,7 @@ def create_app(settings: AppSettings | None = None) -> FastAPI:
     hub = RunEventHub()
     app = FastAPI(
         title="Pengetic",
-        version="0.2.0",
+        version="2.0.4",
         description="Local-first defensive web assessment platform.",
     )
     app.add_middleware(

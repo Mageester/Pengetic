@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pengetic"
-version = "0.2.0"
+version = "2.0.4"
 description = "Pengetic local-first defensive web assessment platform"
 readme = "README.md"
 requires-python = ">=3.12"

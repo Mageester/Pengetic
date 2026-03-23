@@ -78,6 +78,19 @@ class AssessmentPlanner:
                 )
             )
 
+        if "nmap-service-discovery" in scope.tool_allowlist:
+            add_action(
+                action_id="active-nmap-service-discovery",
+                title="Nmap service discovery",
+                objective="Run an approval-gated service scan to inventory open ports, service signatures, and version banners.",
+                target=base_target,
+                tool_id="nmap-service-discovery",
+                classification=RiskLevel.low_risk_active,
+                expected_evidence=["Nmap XML output", "Nmap text output", "Parsed open service inventory"],
+                approval_required=True,
+                notes="Approval-gated service discovery; safe output capture only.",
+            )
+
         add_action(
             action_id="passive-http-probe",
             title="Probe HTTP surface",
@@ -88,15 +101,6 @@ class AssessmentPlanner:
             expected_evidence=["HTTP status", "Redirect chain", "Headers", "Cookie flags", "Title"],
         )
         add_action(
-            action_id="passive-header-review",
-            title="Review security headers",
-            objective="Inspect the base response headers for common hardening gaps and cookie flags.",
-            target=base_target,
-            tool_id="header-review",
-            classification=RiskLevel.passive_safe,
-            expected_evidence=["Structured header analysis", "Cookie flag summary", "CSP/HSTS posture"],
-        )
-        add_action(
             action_id="passive-tls-review",
             title="Review TLS posture",
             objective="Inspect the negotiated TLS version and certificate metadata without altering state.",
@@ -104,6 +108,24 @@ class AssessmentPlanner:
             tool_id="tls-review",
             classification=RiskLevel.passive_safe,
             expected_evidence=["TLS posture", "Certificate metadata", "Protocol/cipher hints"],
+        )
+        add_action(
+            action_id="passive-route-inventory",
+            title="Inventory public routes",
+            objective="Map public routes from visible links, robots.txt, sitemap.xml, and scope-listed public paths.",
+            target=base_target,
+            tool_id="route-inventory",
+            classification=RiskLevel.passive_safe,
+            expected_evidence=["Normalized public routes", "Sensitive route markers", "Base response snapshot"],
+        )
+        add_action(
+            action_id="passive-header-review",
+            title="Review security headers",
+            objective="Inspect the base response headers for common hardening gaps and cookie flags.",
+            target=base_target,
+            tool_id="header-review",
+            classification=RiskLevel.passive_safe,
+            expected_evidence=["Structured header analysis", "Cookie flag summary", "CSP/HSTS posture"],
         )
         add_action(
             action_id="passive-dns-visibility",
@@ -133,15 +155,6 @@ class AssessmentPlanner:
             expected_evidence=["sitemap.xml body", "URL inventory"],
         )
         add_action(
-            action_id="passive-route-inventory",
-            title="Inventory public routes",
-            objective="Map public routes from visible links, robots.txt, sitemap.xml, and scope-listed public paths.",
-            target=base_target,
-            tool_id="route-inventory",
-            classification=RiskLevel.passive_safe,
-            expected_evidence=["Normalized public routes", "Sensitive route markers", "Base response snapshot"],
-        )
-        add_action(
             action_id="passive-tech-fingerprint",
             title="Fingerprint visible technology",
             objective="Derive non-invasive technology signals from headers, metadata, and response content.",
@@ -159,19 +172,6 @@ class AssessmentPlanner:
             classification=RiskLevel.passive_safe,
             expected_evidence=["Manual review artifact"],
         )
-
-        if "nmap-service-discovery" in scope.tool_allowlist:
-            add_action(
-                action_id="active-nmap-service-discovery",
-                title="Nmap service discovery",
-                objective="Run an approval-gated service scan to inventory open ports, service signatures, and version banners.",
-                target=base_target,
-                tool_id="nmap-service-discovery",
-                classification=RiskLevel.low_risk_active,
-                expected_evidence=["Nmap XML output", "Nmap text output", "Parsed open service inventory"],
-                approval_required=True,
-                notes="Approval-gated service discovery; safe output capture only.",
-            )
 
         if scope.login_areas_allowed:
             login_targets = ", ".join(scope.login_areas_allowed)

@@ -9,6 +9,22 @@ from .settings import AppSettings
 from .storage import PengeticStore
 
 
+def ensure_workspace(settings: AppSettings) -> dict[str, Any]:
+    settings.paths.data_dir.mkdir(parents=True, exist_ok=True)
+    settings.paths.artifacts_dir.mkdir(parents=True, exist_ok=True)
+    settings.paths.scopes_dir.mkdir(parents=True, exist_ok=True)
+    settings.paths.runs_dir.mkdir(parents=True, exist_ok=True)
+    store = PengeticStore(settings.paths.db_path)
+    store.initialize()
+    return {
+        "data_dir": str(settings.paths.data_dir),
+        "artifacts_dir": str(settings.paths.artifacts_dir),
+        "scopes_dir": str(settings.paths.scopes_dir),
+        "runs_dir": str(settings.paths.runs_dir),
+        "db_path": str(settings.paths.db_path),
+    }
+
+
 @dataclass(slots=True)
 class WorkspaceReset:
     store: PengeticStore

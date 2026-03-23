@@ -15,6 +15,7 @@ apis_allowed:
   - /api
   - /graphql
 tool_allowlist:
+  - nmap-service-discovery
   - http-probe
   - header-review
   - tls-review
